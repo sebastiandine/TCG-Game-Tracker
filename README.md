@@ -2,6 +2,7 @@
 
 TCG Game Tracker is a desktop application for tracking trading-card-game results and statistics across multiple games and formats. Built with C++20 and wxWidgets.
 
+
 ## Technical Overview
 
 This is a C++20 project with a wxWidgets UI:
