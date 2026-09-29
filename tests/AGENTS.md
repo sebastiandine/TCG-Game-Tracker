@@ -14,6 +14,8 @@
 - `result_tests.cpp` — `Result<T>` ok/err/void semantics.
 - `domain_json_tests.cpp` — JSON round-trip tests for every domain type. **Update this file whenever a domain type changes.**
 - `config_service_tests.cpp` — `ConfigService` against `InMemoryFileSystem`.
+- `data_directory_service_tests.cpp` — `DataDirectoryService` against `InMemoryFileSystem` and a fake `IDatabaseSession`.
+- `selection_tests.cpp` — `resolveSavedOrSoleId` (saved id, sole item, empty/ambiguous lists).
 - `game_title_service_tests.cpp` — `GameTitleService` against `InMemoryGameTitleRepository`.
 - `sqlite_game_title_repository_tests.cpp` — `SqliteGameTitleRepository` against SQLite `:memory:` databases.
 - `sqlite_schema_migration_tests.cpp` — legacy Formats/GameTypes/DeckArchetypes (no `game_id`) attach to Magic: The Gathering with stable ids.

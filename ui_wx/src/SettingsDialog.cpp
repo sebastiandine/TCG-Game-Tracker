@@ -8,6 +8,8 @@
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
+#include <filesystem>
+
 namespace tracker::ui {
 
 SettingsDialog::SettingsDialog(wxWindow* parent, ConfigService& config)
@@ -60,8 +62,17 @@ void SettingsDialog::onBrowse(wxCommandEvent&) {
 }
 
 void SettingsDialog::onOk(wxCommandEvent&) {
+    wxString dirValue = dataDirCtrl_->GetValue();
+    dirValue.Trim(true).Trim(false);
+    if (dirValue.empty()) {
+        showThemedMessageDialog(this, "Data directory must not be empty.",
+                                "Error", wxOK);
+        return;
+    }
+
     auto cfg = config_.current();
-    cfg.dataStorage = dataDirCtrl_->GetValue().ToStdString(wxConvUTF8);
+    cfg.dataStorage = std::filesystem::path(
+        dirValue.ToStdString(wxConvUTF8)).generic_string();
     cfg.theme = (themeChoice_->GetSelection() == 1) ? Theme::Dark : Theme::Light;
 
     auto result = config_.store(cfg);

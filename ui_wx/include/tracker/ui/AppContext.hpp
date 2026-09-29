@@ -6,6 +6,7 @@
 // of this struct only.
 
 #include "tracker/services/ConfigService.hpp"
+#include "tracker/services/DataDirectoryService.hpp"
 #include "tracker/services/DeckService.hpp"
 #include "tracker/services/FormatService.hpp"
 #include "tracker/services/GameImportService.hpp"
@@ -16,13 +17,14 @@
 namespace tracker::ui {
 
 struct AppContext {
-    ConfigService&     config;
-    GameTitleService&  gameTitles;
-    FormatService&     formats;
-    DeckService&       decks;
-    GameTypeService&   gameTypes;
-    GameService&       games;
-    GameImportService& gameImport;
+    ConfigService&         config;
+    DataDirectoryService&  dataDirectory;
+    GameTitleService&      gameTitles;
+    FormatService&         formats;
+    DeckService&           decks;
+    GameTypeService&       gameTypes;
+    GameService&           games;
+    GameImportService&     gameImport;
 };
 
 }  // namespace tracker::ui

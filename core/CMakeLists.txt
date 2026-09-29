@@ -8,6 +8,7 @@ add_library(tracker_core STATIC
     src/domain/DeckStatistics.cpp
 
     src/services/ConfigService.cpp
+    src/services/DataDirectoryService.cpp
     src/services/GameTitleService.cpp
     src/services/FormatService.cpp
     src/services/DeckService.cpp

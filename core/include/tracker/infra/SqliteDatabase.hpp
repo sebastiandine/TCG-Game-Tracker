@@ -3,6 +3,7 @@
 // SqliteDatabase: thin RAII wrapper around a sqlite3* handle.
 // Owns the connection, runs migrations on open.
 
+#include "tracker/ports/IDatabaseSession.hpp"
 #include "tracker/util/Result.hpp"
 
 #include <filesystem>
@@ -12,16 +13,16 @@ struct sqlite3;  // forward-declare; sqlite3.h is included only in the .cpp
 
 namespace tracker {
 
-class SqliteDatabase {
+class SqliteDatabase final : public IDatabaseSession {
 public:
     SqliteDatabase() = default;
-    ~SqliteDatabase();
+    ~SqliteDatabase() override;
 
     SqliteDatabase(const SqliteDatabase&) = delete;
     SqliteDatabase& operator=(const SqliteDatabase&) = delete;
 
     // Open (or create) a database file at the given path.
-    [[nodiscard]] Result<void> open(const std::filesystem::path& dbPath);
+    [[nodiscard]] Result<void> open(const std::filesystem::path& dbPath) override;
 
     // Open an in-memory database (useful for tests).
     [[nodiscard]] Result<void> openMemory();

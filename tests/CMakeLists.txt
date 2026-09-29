@@ -8,6 +8,8 @@ add_executable(tracker_core_tests
     result_tests.cpp
     domain_json_tests.cpp
     config_service_tests.cpp
+    data_directory_service_tests.cpp
+    selection_tests.cpp
     format_service_tests.cpp
     sqlite_format_repository_tests.cpp
     game_title_service_tests.cpp

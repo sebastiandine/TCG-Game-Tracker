@@ -34,6 +34,7 @@ private:
 
     bool rebuildGamesMenu();
     bool rebuildFormatsMenu();
+    void restoreSelection();
     void selectGame(std::int64_t gameId);
     void selectFormat(std::int64_t formatId);
     void persistSelection();

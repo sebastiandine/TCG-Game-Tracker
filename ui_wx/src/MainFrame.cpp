@@ -8,6 +8,7 @@
 #include "tracker/ui/ImportGamesDialog.hpp"
 #include "tracker/ui/SettingsDialog.hpp"
 #include "tracker/ui/Theme.hpp"
+#include "tracker/domain/Selection.hpp"
 
 #include <wx/cursor.h>
 #include <wx/menu.h>
@@ -15,7 +16,28 @@
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
+#include <filesystem>
+#include <system_error>
+
 namespace tracker::ui {
+
+namespace {
+
+bool sameDataDirectory(const std::string& a, const std::string& b) {
+    const std::filesystem::path pa{a};
+    const std::filesystem::path pb{b};
+    std::error_code aEc;
+    std::error_code bEc;
+    if (std::filesystem::exists(pa, aEc) && std::filesystem::exists(pb, bEc)) {
+        std::error_code eqEc;
+        const bool eq = std::filesystem::equivalent(pa, pb, eqEc);
+        if (!eqEc) return eq;
+    }
+    return pa.lexically_normal().generic_string() ==
+           pb.lexically_normal().generic_string();
+}
+
+}  // namespace
 
 MainFrame::MainFrame(AppContext& ctx)
     : wxFrame(nullptr, wxID_ANY, kAppName,
@@ -26,15 +48,7 @@ MainFrame::MainFrame(AppContext& ctx)
     applyTheme();
 
     CallAfter([this] {
-        selectedGameId_ = ctx_.config.current().selectedGameId;
-        selectedFormatId_ = ctx_.config.current().selectedFormatId;
-        rebuildGamesMenu();
-        rebuildFormatsMenu();
-        if (selectedGameId_ != 0) {
-            selectGame(selectedGameId_);
-        } else {
-            updateTitleAndEmptyState();
-        }
+        restoreSelection();
     });
 }
 
@@ -291,18 +305,28 @@ void MainFrame::updateTitleAndEmptyState() {
     SetTitle(wxString::Format("%s - %s - %s", kAppName, gameName, formatName));
 }
 
+void MainFrame::restoreSelection() {
+    selectedGameId_ = ctx_.config.current().selectedGameId;
+    selectedFormatId_ = ctx_.config.current().selectedFormatId;
+    rebuildGamesMenu();
+    selectedGameId_ = resolveSavedOrSoleId(loadedGames_, selectedGameId_);
+    if (selectedGameId_ == 0) {
+        selectedFormatId_ = 0;
+        loadedFormats_.clear();
+        updateTitleAndEmptyState();
+        persistSelection();
+        return;
+    }
+    selectGame(selectedGameId_);
+}
+
 void MainFrame::selectGame(std::int64_t gameId) {
     selectedGameId_ = gameId;
     rebuildFormatsMenu();
-
-    bool formatOk = false;
-    for (const auto& f : loadedFormats_) {
-        if (f.id == selectedFormatId_) { formatOk = true; break; }
-    }
-    if (formatOk) {
+    selectedFormatId_ = resolveSavedOrSoleId(loadedFormats_, selectedFormatId_);
+    if (selectedFormatId_ != 0) {
         selectFormat(selectedFormatId_);
     } else {
-        selectedFormatId_ = 0;
         updateTitleAndEmptyState();
         persistSelection();
     }
@@ -334,11 +358,28 @@ void MainFrame::persistSelection() {
 }
 
 void MainFrame::onSettings(wxCommandEvent&) {
+    const auto previousDataDir = ctx_.config.current().dataStorage;
     SettingsDialog dlg(this, ctx_.config);
     themeModalDialog(&dlg, ctx_.config.current().theme);
-    if (dlg.ShowModal() == wxID_OK) {
-        applyTheme();
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    applyTheme();
+
+    const auto& newDataDir = ctx_.config.current().dataStorage;
+    if (sameDataDirectory(previousDataDir, newDataDir)) return;
+
+    auto result = ctx_.dataDirectory.activate(std::filesystem::path(newDataDir));
+    if (!result) {
+        auto cfg = ctx_.config.current();
+        cfg.dataStorage = previousDataDir;
+        ctx_.config.store(cfg);
+        showThemedMessageDialog(this,
+            wxString::Format("Failed to open data directory: %s",
+                wxString::FromUTF8(result.error().c_str())),
+            "Error", wxOK);
+        return;
     }
+    restoreSelection();
 }
 
 void MainFrame::onQuit(wxCommandEvent&) {
