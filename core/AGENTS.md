@@ -9,10 +9,11 @@
 - `include/tracker/infra/` — concrete adapters: `StdFileSystem`, `SqliteDatabase` (implements `IDatabaseSession`), `SqliteGameTitleRepository`, `SqliteFormatRepository`, `SqliteDeckRepository`, `SqliteGameTypeRepository`, `SqliteGameRepository`.
 - `include/tracker/services/` — high-level operations: `ConfigService`, `DataDirectoryService` (`activate` ensures a data directory and opens `{dir}/tracker.db`), `GameTitleService`, `FormatService`, `DeckService` (includes `createArchetype` / `listByGame`), `GameTypeService`, `GameService` (includes `clearNotes`), `GameImportService`. They depend only on ports / domain.
 - `include/tracker/import/` — CSV/XLSX spreadsheet parsers and header mapping used by game import (`GameImportParse.hpp`).
+- `include/tracker/export/` — CSV/XLSX spreadsheet writers and game-to-row mapping used by game export (`GameExportWrite.hpp`).
 - `include/tracker/util/` — `Result.hpp` (the sum type).
 - `src/` mirrors `include/tracker/` for non-template implementations.
 
-SQLite headers (`sqlite3.h`) are included only in `src/infra/` translation units, never in public headers. The `SqliteDatabase.hpp` header forward-declares `struct sqlite3` to keep the dependency private. miniz (`miniz.h`) is included only in `src/import/Xlsx.cpp`.
+SQLite headers (`sqlite3.h`) are included only in `src/infra/` translation units, never in public headers. The `SqliteDatabase.hpp` header forward-declares `struct sqlite3` to keep the dependency private. miniz (`miniz.h`) is included only in `src/import/Xlsx.cpp` and `src/export/Xlsx.cpp`.
 
 ## Conventions
 

@@ -14,7 +14,7 @@ This is a C++20 project with a wxWidgets UI:
 Key libraries used by the project:
 
 - `nlohmann/json`: JSON serialization/deserialization
-- `miniz`: ZIP inflate for XLSX import
+- `miniz`: ZIP inflate/deflate for XLSX import and export
 - `doctest`: unit testing
 
 For contributor documentation, see the [`docs/`](docs/README.md) directory.

@@ -25,6 +25,7 @@ add_executable(tracker_core_tests
     sqlite_game_repository_tests.cpp
     game_import_parse_tests.cpp
     game_import_service_tests.cpp
+    game_export_tests.cpp
 
     main.cpp
 )

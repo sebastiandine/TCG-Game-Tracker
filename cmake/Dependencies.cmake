@@ -65,7 +65,7 @@ if(UNIX)
 endif()
 
 # ---------------------------------------------------------------------------
-# miniz - ZIP inflate for in-memory XLSX import. MIT license (compatible).
+# miniz - ZIP inflate/deflate for in-memory XLSX import and export. MIT license (compatible).
 # Built as a static lib from source; examples/install are disabled.
 # ---------------------------------------------------------------------------
 message(STATUS "[tracker] Fetching miniz ...")

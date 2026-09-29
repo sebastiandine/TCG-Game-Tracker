@@ -19,6 +19,7 @@ add_library(tracker_ui_wx STATIC
     src/StatsWidgets.cpp
     src/Theme.cpp
     src/ImportGamesDialog.cpp
+    src/ExportGamesDialog.cpp
 )
 
 configure_file(

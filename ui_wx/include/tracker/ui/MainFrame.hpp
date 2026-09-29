@@ -60,6 +60,7 @@ private:
     void onCreateGameType(wxCommandEvent&);
     void onCreateArchetype(wxCommandEvent&);
     void onImportGames(wxCommandEvent&);
+    void onExportGames(wxCommandEvent&);
     void onGameSelected(wxCommandEvent& evt);
     void onFormatSelected(wxCommandEvent& evt);
 
@@ -90,6 +91,7 @@ private:
         IdCreateGameType,
         IdCreateArchetype,
         IdImportGames,
+        IdExportGames,
         IdFormatBase = wxID_HIGHEST + 100,
         IdFormatMax  = IdFormatBase + 500,
         IdGameBase   = IdFormatMax + 1,
