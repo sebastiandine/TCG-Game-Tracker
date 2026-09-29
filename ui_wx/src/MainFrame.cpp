@@ -6,6 +6,7 @@
 #include "tracker/ui/CreateGameTypeDialog.hpp"
 #include "tracker/ui/FormatWorkspace.hpp"
 #include "tracker/ui/ImportGamesDialog.hpp"
+#include "tracker/ui/ExportGamesDialog.hpp"
 #include "tracker/ui/SettingsDialog.hpp"
 #include "tracker/ui/Theme.hpp"
 #include "tracker/domain/Selection.hpp"
@@ -61,6 +62,7 @@ void MainFrame::buildMenuBar() {
     Bind(wxEVT_MENU, &MainFrame::onCreateGameType, this, IdCreateGameType);
     Bind(wxEVT_MENU, &MainFrame::onCreateArchetype, this, IdCreateArchetype);
     Bind(wxEVT_MENU, &MainFrame::onImportGames, this, IdImportGames);
+    Bind(wxEVT_MENU, &MainFrame::onExportGames, this, IdExportGames);
     Bind(wxEVT_MENU, &MainFrame::onFormatSelected, this,
          IdFormatBase, IdFormatMax);
     Bind(wxEVT_MENU, &MainFrame::onGameSelected, this,
@@ -187,6 +189,7 @@ void MainFrame::onOpenFormatsMenu() {
 void MainFrame::onOpenDataMenu() {
     wxMenu menu;
     menu.Append(IdImportGames, "Import...");
+    menu.Append(IdExportGames, "Export...");
     menu.Append(IdCreateFormat, "Create Format...");
     menu.Append(IdCreateGameType, "Create Game Type...");
     menu.Append(IdCreateArchetype, "Create Archetype...");
@@ -454,6 +457,17 @@ void MainFrame::onImportGames(wxCommandEvent&) {
         rebuildFormatsMenu();
         selectFormat(dlg.importedFormatId());
     }
+}
+
+void MainFrame::onExportGames(wxCommandEvent&) {
+    if (selectedGameId_ == 0) {
+        showThemedMessageDialog(this, "Create or select a game first.",
+                                "No Game", wxOK);
+        return;
+    }
+    ExportGamesDialog dlg(this, ctx_);
+    themeModalDialog(&dlg, ctx_.config.current().theme);
+    dlg.ShowModal();
 }
 
 void MainFrame::onGameSelected(wxCommandEvent& evt) {

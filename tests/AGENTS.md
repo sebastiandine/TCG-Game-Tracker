@@ -25,6 +25,7 @@
 - `game_service_tests.cpp` — `GameService` against `InMemoryGameRepository` (create/update/list, `clearNotes`).
 - `game_import_parse_tests.cpp` — CSV/XLSX parsers and header mapping for game import.
 - `game_import_service_tests.cpp` — `GameImportService` against in-memory deck/game-type/game fakes and a scripted `IGameImportSink`.
+- `game_export_tests.cpp` — `mapGamesForExport` plus CSV/XLSX writers, including import round-trips.
 - `sqlite_format_repository_tests.cpp` — `SqliteFormatRepository` against SQLite `:memory:` databases.
 - `sqlite_game_type_repository_tests.cpp` — `SqliteGameTypeRepository` against SQLite `:memory:` databases (per-game uniqueness, no seed).
 - `sqlite_deck_repository_tests.cpp` — `SqliteDeckRepository` against SQLite `:memory:` databases (per-game archetypes, FK enforcement, UNIQUE constraint).

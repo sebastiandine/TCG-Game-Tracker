@@ -20,6 +20,10 @@ add_library(tracker_core STATIC
     src/import/Xlsx.cpp
     src/import/GameImportMapper.cpp
 
+    src/export/Csv.cpp
+    src/export/Xlsx.cpp
+    src/export/GameExportMapper.cpp
+
     src/infra/StdFileSystem.cpp
     src/infra/SqliteDatabase.cpp
     src/infra/SqliteGameTitleRepository.cpp

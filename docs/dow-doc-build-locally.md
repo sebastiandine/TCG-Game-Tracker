@@ -17,7 +17,7 @@ Dependencies are managed with CMake `FetchContent` in `cmake/Dependencies.cmake`
 Pinned versions:
 
 - `nlohmann/json` `v3.11.3`
-- `miniz` `3.0.2` (ZIP inflate for XLSX import)
+- `miniz` `3.0.2` (ZIP inflate/deflate for XLSX import and export)
 - `SQLite` `3.53.4` (amalgamation — `sqlite3.c` compiled as a static lib)
 - `wxWidgets` `v3.2.5`
 - `doctest` `v2.4.11` (only when tests are enabled)

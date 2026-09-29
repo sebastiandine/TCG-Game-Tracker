@@ -19,6 +19,7 @@
 - `include/tracker/ui/CreateGameTypeDialog.hpp` + `src/CreateGameTypeDialog.cpp` — modal dialog for creating a game type under the selected game (name, competitiveness, medium). Validates via `GameTypeService::create`.
 - `include/tracker/ui/CreateArchetypeDialog.hpp` + `src/CreateArchetypeDialog.cpp` — modal dialog for creating an archetype under the selected game. Validates via `DeckService::createArchetype`.
 - `include/tracker/ui/ImportGamesDialog.hpp` + `src/ImportGamesDialog.cpp` — modal dialog for importing game records from CSV/XLSX into a format of the selected game. A progress dialog reports row status; new core decks prompt for archetype unless the name contains one of that game's archetype labels, and new events prompt for competitiveness and paper/online.
+- `include/tracker/ui/ExportGamesDialog.hpp` + `src/ExportGamesDialog.cpp` — modal dialog for exporting a format's game records to CSV or XLSX using the same columns as import.
 - `include/tracker/ui/Theme.hpp` + `src/Theme.cpp` — shared theme helpers: `paletteForTheme`, `applyThemeToWindowTree`, `themeModalDialog`, `showThemedMessageDialog`, `showThemedConfirmDialog`, dark-mode button painting, MSW title-bar dark mode, text-ctrl hardening, placeholder painting.
 - `include/tracker/ui/AppVersion.hpp.in` — `kAppVersion` from `TRACKER_APP_VERSION` CMake variable.
 
