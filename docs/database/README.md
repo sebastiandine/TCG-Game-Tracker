@@ -17,7 +17,7 @@ The database file is named `tracker.db` and lives under the configured data dire
 {Configuration.dataStorage}/tracker.db
 ```
 
-By default this resolves to `<exe directory>/data/tracker.db`. The data directory is user-configurable through Settings.
+By default this resolves to `<exe directory>/data/tracker.db`. The data directory is user-configurable through Settings; changing it there opens that directory's `tracker.db` immediately.
 
 ## Schema Migrations
 

@@ -10,6 +10,7 @@
 #include "tracker/infra/SqliteGameTypeRepository.hpp"
 #include "tracker/infra/StdFileSystem.hpp"
 #include "tracker/services/ConfigService.hpp"
+#include "tracker/services/DataDirectoryService.hpp"
 #include "tracker/services/DeckService.hpp"
 #include "tracker/services/FormatService.hpp"
 #include "tracker/services/GameImportService.hpp"
@@ -51,22 +52,14 @@ public:
             return false;
         }
 
-        const auto dataDir =
-            std::filesystem::path(config_->current().dataStorage);
-        auto ensureResult = fs_->ensureDirectory(dataDir);
-        if (!ensureResult) {
-            wxMessageBox(
-                wxString::Format("Failed to create data directory: %s",
-                    wxString::FromUTF8(ensureResult.error().c_str())),
-                "Startup Error", wxOK | wxICON_ERROR);
-            return false;
-        }
-
         db_ = std::make_unique<tracker::SqliteDatabase>();
-        auto dbResult = db_->open(dataDir / "tracker.db");
+        dataDirectory_ = std::make_unique<tracker::DataDirectoryService>(
+            *fs_, *db_);
+        auto dbResult = dataDirectory_->activate(
+            std::filesystem::path(config_->current().dataStorage));
         if (!dbResult) {
             wxMessageBox(
-                wxString::Format("Failed to open database: %s",
+                wxString::Format("Failed to open data directory: %s",
                     wxString::FromUTF8(dbResult.error().c_str())),
                 "Startup Error", wxOK | wxICON_ERROR);
             return false;
@@ -91,8 +84,8 @@ public:
 
         ctx_ = std::make_unique<tracker::ui::AppContext>(
             tracker::ui::AppContext{
-                *config_, *gameTitles_, *formats_, *decks_, *gameTypes_,
-                *games_, *gameImport_});
+                *config_, *dataDirectory_, *gameTitles_, *formats_, *decks_,
+                *gameTypes_, *games_, *gameImport_});
 
         auto* frame = new tracker::ui::MainFrame(*ctx_);
         frame->Show(true);
@@ -105,6 +98,7 @@ private:
     std::unique_ptr<tracker::StdFileSystem>            fs_;
     std::unique_ptr<tracker::ConfigService>            config_;
     std::unique_ptr<tracker::SqliteDatabase>           db_;
+    std::unique_ptr<tracker::DataDirectoryService>     dataDirectory_;
     std::unique_ptr<tracker::SqliteGameTitleRepository> gameTitlesRepo_;
     std::unique_ptr<tracker::GameTitleService>          gameTitles_;
     std::unique_ptr<tracker::SqliteFormatRepository>   formatsRepo_;

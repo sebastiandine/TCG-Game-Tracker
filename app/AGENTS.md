@@ -9,7 +9,7 @@ The `tracker` executable — composition root only. The single place where concr
 
 ## Conventions
 
-1. **Composition root is the only place** that names concrete adapters: `StdFileSystem`, `SqliteDatabase`, `SqliteGameTitleRepository`, `SqliteFormatRepository`, `SqliteDeckRepository`, `SqliteGameTypeRepository`, `SqliteGameRepository`, `ConfigService`, `GameTitleService`, `FormatService`, `DeckService`, `GameTypeService`, `GameService`, `GameImportService`. If a concrete adapter type appears anywhere else in the codebase, move the wiring here.
+1. **Composition root is the only place** that names concrete adapters: `StdFileSystem`, `SqliteDatabase`, `SqliteGameTitleRepository`, `SqliteFormatRepository`, `SqliteDeckRepository`, `SqliteGameTypeRepository`, `SqliteGameRepository`, `ConfigService`, `DataDirectoryService`, `GameTitleService`, `FormatService`, `DeckService`, `GameTypeService`, `GameService`, `GameImportService`. If a concrete adapter type appears anywhere else in the codebase, move the wiring here.
 2. **Member declaration order in `TrackerApp` matters** — destruction is reverse, so a member that depends on another must be declared **after** its deps. Do not reorder casually.
 3. **Use `std::unique_ptr` for everything owned** by `TrackerApp`. The `AppContext` then holds plain references into those owned objects.
 4. **`config.json` location** is the executable's parent directory, resolved via `wxStandardPaths::Get().GetExecutablePath()`. Do not change this.
