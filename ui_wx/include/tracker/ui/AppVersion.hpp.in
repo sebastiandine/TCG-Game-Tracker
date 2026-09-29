@@ -1,0 +1,8 @@
+#pragma once
+
+namespace tracker::ui {
+
+inline constexpr const char* kAppName = "TCG Game Tracker";
+inline constexpr const char* kAppVersion = "@TRACKER_APP_VERSION@";
+
+}  // namespace tracker::ui

@@ -1,0 +1,1093 @@
+#include "tracker/ui/Theme.hpp"
+
+#include <wx/button.h>
+#include <wx/bmpbuttn.h>
+#include <wx/tglbtn.h>
+#include <wx/choice.h>
+#include <wx/dcbuffer.h>
+#include <wx/frame.h>
+#include <wx/dialog.h>
+#include <wx/listbox.h>
+#include <wx/listctrl.h>
+#include <wx/statusbr.h>
+#include <wx/spinctrl.h>
+#include <wx/statbmp.h>
+#include <wx/stattext.h>
+#include <wx/settings.h>
+#include <wx/msgdlg.h>
+#include <wx/sizer.h>
+#include <wx/textctrl.h>
+#include <wx/toplevel.h>
+#include <wx/datectrl.h>
+#include <wx/treectrl.h>
+#include <wx/treelist.h>
+#include <wx/window.h>
+
+#include <unordered_map>
+#include <unordered_set>
+#include <cstring>
+#include <cwchar>
+#include <string>
+#include <string_view>
+
+#ifdef __WXMSW__
+#include <windows.h>
+#include <commctrl.h>
+#endif
+
+namespace tracker::ui {
+
+namespace {
+std::unordered_set<wxWindow*> gButtonHoverBound;
+std::unordered_set<wxWindow*> gDialogGripLayoutBound;
+struct ButtonVisualState {
+    wxColour normalBg;
+    wxColour hoverBg;
+    wxColour pressedBg;
+    wxColour text;
+    bool darkLike{false};
+    bool hovered{false};
+    bool pressed{false};
+    bool focused{false};
+};
+std::unordered_map<wxWindow*, ButtonVisualState> gButtonVisualStates;
+struct GripVisualState {
+    wxColour bg;
+    wxColour line;
+};
+std::unordered_map<wxWindow*, GripVisualState> gGripVisualStates;
+
+wxColour lightenTowardWhite(const wxColour& c, int amount) {
+    auto lift = [amount](unsigned char channel) -> unsigned char {
+        const int raised = static_cast<int>(channel) + amount;
+        return static_cast<unsigned char>(raised > 255 ? 255 : raised);
+    };
+    return wxColour(lift(c.Red()), lift(c.Green()), lift(c.Blue()));
+}
+
+bool isDarkLikeTheme(Theme theme) {
+    return theme == Theme::Dark;
+}
+
+void ensureDarkDialogResizeGrip(wxWindow* window, const ThemePalette& palette, Theme theme) {
+    auto* dialog = dynamic_cast<wxDialog*>(window);
+    if (dialog == nullptr) return;
+    if ((dialog->GetWindowStyleFlag() & wxRESIZE_BORDER) == 0) return;
+
+    constexpr int kGripSize = 16;
+    const wxString kGripName = "tracker_dark_resize_grip_overlay";
+    wxWindow* grip = wxWindow::FindWindowByName(kGripName, dialog);
+
+    if (!isDarkLikeTheme(theme)) {
+        if (grip != nullptr) {
+            gGripVisualStates.erase(grip);
+            grip->Destroy();
+        }
+        return;
+    }
+
+    if (grip == nullptr) {
+        grip = new wxWindow(dialog, wxID_ANY, wxDefaultPosition, wxSize(kGripSize, kGripSize),
+                            wxBORDER_NONE);
+        grip->SetName(kGripName);
+        grip->SetCursor(wxCursor(wxCURSOR_SIZENWSE));
+        grip->SetBackgroundStyle(wxBG_STYLE_PAINT);
+
+        grip->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent&) {});
+        grip->Bind(wxEVT_PAINT, [grip](wxPaintEvent&) {
+            wxAutoBufferedPaintDC dc(grip);
+            const auto it = gGripVisualStates.find(grip);
+            const wxColour bg = (it != gGripVisualStates.end()) ? it->second.bg : wxColour(45, 45, 45);
+            const wxColour line = (it != gGripVisualStates.end()) ? it->second.line : wxColour(110, 110, 110);
+
+            const wxRect rect = grip->GetClientRect();
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(bg));
+            dc.DrawRectangle(rect);
+
+            dc.SetPen(wxPen(line, 1));
+            const int r = rect.GetRight();
+            const int b = rect.GetBottom();
+            dc.DrawLine(r - 11, b, r, b - 11);
+            dc.DrawLine(r - 7,  b, r, b - 7);
+            dc.DrawLine(r - 3,  b, r, b - 3);
+        });
+#ifdef __WXMSW__
+        grip->Bind(wxEVT_LEFT_DOWN, [dialog](wxMouseEvent&) {
+            const HWND hwnd = reinterpret_cast<HWND>(dialog->GetHandle());
+            if (hwnd == nullptr) return;
+            ::ReleaseCapture();
+            ::SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTBOTTOMRIGHT, 0);
+        });
+#endif
+        grip->Bind(wxEVT_DESTROY, [grip](wxWindowDestroyEvent& ev) {
+            gGripVisualStates.erase(grip);
+            ev.Skip();
+        });
+    }
+
+    gGripVisualStates[grip] = GripVisualState{
+        palette.panelBg,
+        lightenTowardWhite(palette.panelBg, 48),
+    };
+
+    auto placeGrip = [dialog, grip]() {
+        const wxSize cs = dialog->GetClientSize();
+        const int w = kGripSize;
+        const int h = kGripSize;
+        grip->SetSize(std::max(0, cs.GetWidth() - w), std::max(0, cs.GetHeight() - h), w, h);
+        grip->Raise();
+    };
+    placeGrip();
+    grip->Show();
+    grip->Refresh();
+
+    if (!gDialogGripLayoutBound.count(dialog)) {
+        gDialogGripLayoutBound.insert(dialog);
+        dialog->Bind(wxEVT_SIZE, [dialog](wxSizeEvent& ev) {
+            if (wxWindow* w = wxWindow::FindWindowByName("tracker_dark_resize_grip_overlay", dialog)) {
+                constexpr int kSize = 16;
+                const wxSize cs = dialog->GetClientSize();
+                w->SetSize(std::max(0, cs.GetWidth() - kSize), std::max(0, cs.GetHeight() - kSize), kSize, kSize);
+                w->Raise();
+            }
+            ev.Skip();
+        });
+        dialog->Bind(wxEVT_DESTROY, [dialog](wxWindowDestroyEvent& ev) {
+            gDialogGripLayoutBound.erase(dialog);
+            ev.Skip();
+        });
+    }
+}
+}
+
+#ifdef __WXMSW__
+namespace {
+
+using SetWindowThemeFn = HRESULT(WINAPI*)(HWND, LPCWSTR, LPCWSTR);
+using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+using AllowDarkModeForWindowFn = BOOL(WINAPI*)(HWND, BOOL);
+enum class PreferredAppMode : int {
+    Default = 0,
+    AllowDark = 1,
+    ForceDark = 2,
+    ForceLight = 3,
+    Max = 4
+};
+using SetPreferredAppModeFn = PreferredAppMode(WINAPI*)(PreferredAppMode);
+using FlushMenuThemesFn = VOID(WINAPI*)();
+
+SetWindowThemeFn resolveSetWindowTheme() {
+    static HMODULE uxthemeModule = ::LoadLibraryW(L"uxtheme.dll");
+    static auto setWindowTheme = reinterpret_cast<SetWindowThemeFn>(
+        uxthemeModule ? ::GetProcAddress(uxthemeModule, "SetWindowTheme") : nullptr);
+    return setWindowTheme;
+}
+
+AllowDarkModeForWindowFn resolveAllowDarkModeForWindow() {
+    static HMODULE uxthemeModule = ::LoadLibraryW(L"uxtheme.dll");
+    static auto fn = reinterpret_cast<AllowDarkModeForWindowFn>(
+        uxthemeModule ? ::GetProcAddress(uxthemeModule, MAKEINTRESOURCEA(133)) : nullptr);
+    return fn;
+}
+
+SetPreferredAppModeFn resolveSetPreferredAppMode() {
+    static HMODULE uxthemeModule = ::LoadLibraryW(L"uxtheme.dll");
+    static auto fn = reinterpret_cast<SetPreferredAppModeFn>(
+        uxthemeModule ? ::GetProcAddress(uxthemeModule, MAKEINTRESOURCEA(135)) : nullptr);
+    return fn;
+}
+
+FlushMenuThemesFn resolveFlushMenuThemes() {
+    static HMODULE uxthemeModule = ::LoadLibraryW(L"uxtheme.dll");
+    static auto fn = reinterpret_cast<FlushMenuThemesFn>(
+        uxthemeModule ? ::GetProcAddress(uxthemeModule, MAKEINTRESOURCEA(136)) : nullptr);
+    return fn;
+}
+
+void applyNativeClassTheme(wxWindow* window, Theme theme, const wchar_t* darkClass, const wchar_t* lightClass) {
+    if (window == nullptr) return;
+    const HWND hwnd = reinterpret_cast<HWND>(window->GetHandle());
+    if (hwnd == nullptr) return;
+
+    const auto setWindowTheme = resolveSetWindowTheme();
+    if (setWindowTheme == nullptr) return;
+
+    const bool dark = (theme == Theme::Dark);
+    setWindowTheme(hwnd, dark ? darkClass : lightClass, nullptr);
+}
+
+constexpr UINT_PTR kEditColorSubclassId = 0x54524b45;  // 'TRKE'
+std::unordered_set<HWND> gEditColorSubclassedParents;
+std::unordered_map<HWND, wxTextCtrl*> gPaletteTextCtrls;
+std::unordered_set<wxTextCtrl*> gPaletteTextCtrlDestroyBound;
+
+LRESULT CALLBACK editColorParentSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                         UINT_PTR /*subclassId*/, DWORD_PTR /*refData*/) {
+    if (msg == WM_CTLCOLOREDIT || msg == WM_CTLCOLORSTATIC) {
+        const HWND editHwnd = reinterpret_cast<HWND>(lParam);
+        const auto it = gPaletteTextCtrls.find(editHwnd);
+        if (it != gPaletteTextCtrls.end() && it->second != nullptr) {
+            wxTextCtrl* text = it->second;
+            const wxColour fg = text->GetForegroundColour();
+            const wxColour bg = text->GetBackgroundColour();
+            if (fg.IsOk() && bg.IsOk()) {
+                HDC hdc = reinterpret_cast<HDC>(wParam);
+                ::SetTextColor(hdc, RGB(fg.Red(), fg.Green(), fg.Blue()));
+                ::SetBkColor(hdc, RGB(bg.Red(), bg.Green(), bg.Blue()));
+                ::SetDCBrushColor(hdc, RGB(bg.Red(), bg.Green(), bg.Blue()));
+                return reinterpret_cast<LRESULT>(::GetStockObject(DC_BRUSH));
+            }
+        }
+    } else if (msg == WM_NCDESTROY) {
+        gEditColorSubclassedParents.erase(hwnd);
+        ::RemoveWindowSubclass(hwnd, editColorParentSubclass, kEditColorSubclassId);
+    }
+    return ::DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+HWND resolveNativeEditHwnd(wxTextCtrl* text) {
+    if (text == nullptr) return nullptr;
+    const HWND wxHwnd = reinterpret_cast<HWND>(text->GetHandle());
+    if (wxHwnd == nullptr) return nullptr;
+    static const wchar_t* kClasses[] = {
+        L"Edit", L"RICHEDIT50W", L"RichEdit50W", L"RICHEDIT20W", L"RichEdit20W",
+    };
+    for (const wchar_t* cls : kClasses) {
+        HWND child = ::FindWindowExW(wxHwnd, nullptr, cls, nullptr);
+        if (child != nullptr) return child;
+    }
+    return wxHwnd;
+}
+
+void ensureEditColorParentSubclass(wxTextCtrl* text, HWND editHwnd) {
+    if (text == nullptr || editHwnd == nullptr) return;
+    gPaletteTextCtrls[editHwnd] = text;
+    if (gPaletteTextCtrlDestroyBound.insert(text).second) {
+        text->Bind(wxEVT_DESTROY, [text, editHwnd](wxWindowDestroyEvent& event) {
+            gPaletteTextCtrls.erase(editHwnd);
+            gPaletteTextCtrlDestroyBound.erase(text);
+            event.Skip();
+        });
+    }
+    const HWND parent = ::GetParent(editHwnd);
+    if (parent == nullptr) return;
+    if (gEditColorSubclassedParents.count(parent) != 0) return;
+    if (::SetWindowSubclass(parent, editColorParentSubclass, kEditColorSubclassId, 0) != FALSE) {
+        gEditColorSubclassedParents.insert(parent);
+    }
+}
+
+constexpr UINT_PTR kPlaceholderSubclassId = 0x54524b50;  // 'TRKP'
+struct PlaceholderState {
+    wxTextCtrl* text{nullptr};
+    std::wstring hint;
+};
+std::unordered_map<HWND, PlaceholderState> gPlaceholders;
+std::unordered_set<HWND> gPlaceholderSubclassed;
+
+wxColour mixColours(const wxColour& a, const wxColour& b, int aParts, int total) {
+    const int bParts = total - aParts;
+    auto mix = [&](unsigned char ca, unsigned char cb) -> unsigned char {
+        return static_cast<unsigned char>((static_cast<int>(ca) * aParts +
+                                           static_cast<int>(cb) * bParts) /
+                                          total);
+    };
+    return wxColour(mix(a.Red(), b.Red()), mix(a.Green(), b.Green()), mix(a.Blue(), b.Blue()));
+}
+
+void paintEmptyPlaceholder(HWND hwnd, HDC suppliedDc) {
+    const auto it = gPlaceholders.find(hwnd);
+    if (it == gPlaceholders.end() || it->second.hint.empty()) return;
+    if (::GetWindowTextLengthW(hwnd) > 0) return;
+    const HWND focus = ::GetFocus();
+    if (focus == hwnd) return;
+    if (it->second.text != nullptr && it->second.text->HasFocus()) return;
+
+    HDC hdc = suppliedDc;
+    if (hdc == nullptr) hdc = ::GetDC(hwnd);
+    if (hdc == nullptr) return;
+
+    RECT rc{};
+    ::GetClientRect(hwnd, &rc);
+    rc.left += 4;
+
+    wxColour fg(160, 160, 160);
+    wxColour bg(45, 45, 45);
+    if (it->second.text != nullptr) {
+        const wxColour textFg = it->second.text->GetForegroundColour();
+        const wxColour textBg = it->second.text->GetBackgroundColour();
+        if (textFg.IsOk()) fg = textFg;
+        if (textBg.IsOk()) bg = textBg;
+    }
+    const wxColour muted = mixColours(fg, bg, 2, 5);
+
+    const HFONT source = reinterpret_cast<HFONT>(::SendMessageW(hwnd, WM_GETFONT, 0, 0));
+    HFONT hintFont = nullptr;
+    if (source != nullptr) {
+        LOGFONTW lf{};
+        if (::GetObjectW(source, sizeof(lf), &lf) != 0) {
+            wcsncpy(lf.lfFaceName, L"Segoe UI Light", LF_FACESIZE - 1);
+            lf.lfFaceName[LF_FACESIZE - 1] = 0;
+            lf.lfWeight = FW_LIGHT;
+            lf.lfItalic = FALSE;
+            lf.lfQuality = CLEARTYPE_QUALITY;
+            if (lf.lfHeight < -1) lf.lfHeight += 1;
+            hintFont = ::CreateFontIndirectW(&lf);
+        }
+    }
+    const HFONT useFont = hintFont != nullptr ? hintFont : source;
+    const HGDIOBJ oldFont = (useFont != nullptr) ? ::SelectObject(hdc, useFont) : nullptr;
+    ::SetBkMode(hdc, TRANSPARENT);
+    ::SetTextColor(hdc, RGB(muted.Red(), muted.Green(), muted.Blue()));
+    ::DrawTextW(hdc, it->second.hint.c_str(), -1, &rc,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    if (oldFont != nullptr) ::SelectObject(hdc, oldFont);
+    if (hintFont != nullptr) ::DeleteObject(hintFont);
+    if (suppliedDc == nullptr) ::ReleaseDC(hwnd, hdc);
+}
+
+LRESULT CALLBACK placeholderEditSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                         UINT_PTR /*subclassId*/, DWORD_PTR /*refData*/) {
+    if (msg == WM_PAINT || msg == WM_PRINTCLIENT) {
+        const LRESULT result = ::DefSubclassProc(hwnd, msg, wParam, lParam);
+        paintEmptyPlaceholder(hwnd, msg == WM_PRINTCLIENT ? reinterpret_cast<HDC>(wParam) : nullptr);
+        return result;
+    }
+    if (msg == WM_SETFOCUS || msg == WM_KILLFOCUS) {
+        const LRESULT result = ::DefSubclassProc(hwnd, msg, wParam, lParam);
+        ::InvalidateRect(hwnd, nullptr, TRUE);
+        return result;
+    }
+    if (msg == WM_NCDESTROY) {
+        gPlaceholders.erase(hwnd);
+        gPlaceholderSubclassed.erase(hwnd);
+        ::RemoveWindowSubclass(hwnd, placeholderEditSubclass, kPlaceholderSubclassId);
+    }
+    return ::DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void hardenTextCtrlNativeTheme(wxTextCtrl* text, Theme theme) {
+    if (text == nullptr) return;
+    const bool darkLike = isDarkLikeTheme(theme);
+
+    const HWND wxHwnd = reinterpret_cast<HWND>(text->GetHandle());
+    if (wxHwnd == nullptr) return;
+
+    HWND editHwnd = resolveNativeEditHwnd(text);
+
+    if (auto allowDarkModeForWindow = resolveAllowDarkModeForWindow()) {
+        allowDarkModeForWindow(editHwnd, darkLike ? TRUE : FALSE);
+        if (editHwnd != wxHwnd)
+            allowDarkModeForWindow(wxHwnd, darkLike ? TRUE : FALSE);
+    }
+    if (auto setWindowTheme = resolveSetWindowTheme()) {
+        const wchar_t* cls = darkLike ? L"DarkMode_Explorer" : L"Explorer";
+        setWindowTheme(editHwnd, cls, nullptr);
+        if (editHwnd != wxHwnd)
+            setWindowTheme(wxHwnd, cls, nullptr);
+    }
+    ::SendMessageW(editHwnd, WM_THEMECHANGED, 0, 0);
+    ensureEditColorParentSubclass(text, editHwnd);
+    ::InvalidateRect(editHwnd, nullptr, TRUE);
+}
+
+COLORREF toColorRef(const wxColour& c) {
+    return RGB(c.Red(), c.Green(), c.Blue());
+}
+
+constexpr UINT_PTR kHeaderSubclassId = 0x54524b48;  // 'TRKH'
+
+struct HeaderThemeState {
+    Theme theme{Theme::Light};
+    ThemePalette palette{};
+};
+
+std::unordered_map<HWND, HeaderThemeState> gHeaderThemes;
+std::unordered_set<HWND> gHeaderSubclassed;
+
+void paintDarkHeader(HWND hwnd, const ThemePalette& palette) {
+    PAINTSTRUCT ps{};
+    HDC hdc = ::BeginPaint(hwnd, &ps);
+    if (hdc == nullptr) return;
+
+    RECT rc{};
+    ::GetClientRect(hwnd, &rc);
+
+    const COLORREF bg = toColorRef(palette.inputBg);
+    const COLORREF fg = toColorRef(palette.inputText);
+    const wxColour lineWx = lightenTowardWhite(palette.inputBg, 48);
+    const COLORREF line = toColorRef(lineWx);
+
+    HBRUSH brush = ::CreateSolidBrush(bg);
+    ::FillRect(hdc, &rc, brush);
+    ::DeleteObject(brush);
+
+    HPEN pen = ::CreatePen(PS_SOLID, 1, line);
+    const HGDIOBJ oldPen = ::SelectObject(hdc, pen);
+    ::MoveToEx(hdc, rc.left, rc.bottom - 1, nullptr);
+    ::LineTo(hdc, rc.right, rc.bottom - 1);
+
+    const int count =
+        static_cast<int>(::SendMessageW(hwnd, HDM_GETITEMCOUNT, 0, 0));
+    const HFONT font =
+        reinterpret_cast<HFONT>(::SendMessageW(hwnd, WM_GETFONT, 0, 0));
+    const HGDIOBJ oldFont =
+        font != nullptr ? ::SelectObject(hdc, font) : nullptr;
+    ::SetBkMode(hdc, TRANSPARENT);
+    ::SetTextColor(hdc, fg);
+
+    for (int i = 0; i < count; ++i) {
+        RECT itemRc{};
+        if (::SendMessageW(hwnd, HDM_GETITEMRECT, static_cast<WPARAM>(i),
+                           reinterpret_cast<LPARAM>(&itemRc)) == 0) {
+            continue;
+        }
+
+        ::MoveToEx(hdc, itemRc.right - 1, itemRc.top + 3, nullptr);
+        ::LineTo(hdc, itemRc.right - 1, itemRc.bottom - 3);
+
+        wchar_t buf[512]{};
+        HDITEMW item{};
+        item.mask = HDI_TEXT | HDI_FORMAT;
+        item.pszText = buf;
+        item.cchTextMax = 512;
+        ::SendMessageW(hwnd, HDM_GETITEMW, static_cast<WPARAM>(i),
+                       reinterpret_cast<LPARAM>(&item));
+
+        RECT textRc = itemRc;
+        textRc.left += 8;
+        textRc.right -= 8;
+        UINT fmt = DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
+        const int align = item.fmt & HDF_JUSTIFYMASK;
+        if (align == HDF_RIGHT) fmt |= DT_RIGHT;
+        else if (align == HDF_CENTER) fmt |= DT_CENTER;
+        else fmt |= DT_LEFT;
+
+        if ((item.fmt & HDF_SORTUP) != 0 || (item.fmt & HDF_SORTDOWN) != 0) {
+            const int arrow = 8;
+            const int midY = (itemRc.top + itemRc.bottom) / 2;
+            const int ax = itemRc.right - 10;
+            POINT pts[3];
+            if ((item.fmt & HDF_SORTUP) != 0) {
+                pts[0] = {ax, midY - 3};
+                pts[1] = {ax - arrow / 2, midY + 2};
+                pts[2] = {ax + arrow / 2, midY + 2};
+            } else {
+                pts[0] = {ax, midY + 3};
+                pts[1] = {ax - arrow / 2, midY - 2};
+                pts[2] = {ax + arrow / 2, midY - 2};
+            }
+            HBRUSH arrowBrush = ::CreateSolidBrush(fg);
+            const HGDIOBJ oldBrush = ::SelectObject(hdc, arrowBrush);
+            ::SelectObject(hdc, ::GetStockObject(NULL_PEN));
+            ::Polygon(hdc, pts, 3);
+            ::SelectObject(hdc, oldBrush);
+            ::SelectObject(hdc, pen);
+            ::DeleteObject(arrowBrush);
+            textRc.right -= 12;
+        }
+
+        if (buf[0] != 0) {
+            ::DrawTextW(hdc, buf, -1, &textRc, fmt);
+        }
+    }
+
+    if (oldFont != nullptr) ::SelectObject(hdc, oldFont);
+    ::SelectObject(hdc, oldPen);
+    ::DeleteObject(pen);
+    ::EndPaint(hwnd, &ps);
+}
+
+LRESULT CALLBACK headerSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                UINT_PTR /*subclassId*/, DWORD_PTR /*refData*/) {
+    if (msg == WM_PAINT || msg == WM_ERASEBKGND) {
+        const auto it = gHeaderThemes.find(hwnd);
+        if (it != gHeaderThemes.end() && it->second.theme == Theme::Dark) {
+            if (msg == WM_ERASEBKGND) return 1;
+            paintDarkHeader(hwnd, it->second.palette);
+            return 0;
+        }
+    }
+    if (msg == WM_NCDESTROY) {
+        gHeaderThemes.erase(hwnd);
+        gHeaderSubclassed.erase(hwnd);
+        ::RemoveWindowSubclass(hwnd, headerSubclass, kHeaderSubclassId);
+    }
+    return ::DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void applyHeaderHwndTheme(HWND header, Theme theme, const ThemePalette& palette) {
+    if (header == nullptr) return;
+
+    const auto setWindowTheme = resolveSetWindowTheme();
+    const bool dark = (theme == Theme::Dark);
+    if (auto allowDarkModeForWindow = resolveAllowDarkModeForWindow()) {
+        allowDarkModeForWindow(header, dark ? TRUE : FALSE);
+    }
+    if (setWindowTheme != nullptr) {
+        // Empty theme in dark mode so our owner-draw is not overpainted by
+        // a light SysHeader32 visual style (ListCtrl headers stay light
+        // under DarkMode_Explorer on several Windows builds).
+        if (dark) {
+            setWindowTheme(header, L"", L"");
+        } else {
+            setWindowTheme(header, L"Header", nullptr);
+        }
+    }
+
+    gHeaderThemes[header] = HeaderThemeState{theme, palette};
+    if (gHeaderSubclassed.insert(header).second) {
+        ::SetWindowSubclass(header, headerSubclass, kHeaderSubclassId, 0);
+    }
+    ::InvalidateRect(header, nullptr, TRUE);
+}
+
+HWND findSysHeader32(HWND root) {
+    if (root == nullptr) return nullptr;
+    wchar_t cls[64]{};
+    if (::GetClassNameW(root, cls, 64) > 0 && wcscmp(cls, L"SysHeader32") == 0) {
+        return root;
+    }
+    HWND child = ::FindWindowExW(root, nullptr, nullptr, nullptr);
+    while (child != nullptr) {
+        if (HWND found = findSysHeader32(child)) return found;
+        child = ::FindWindowExW(root, child, nullptr, nullptr);
+    }
+    return nullptr;
+}
+
+void applyListHeaderTheme(wxWindow* window, Theme theme, const ThemePalette& palette) {
+    if (window == nullptr) return;
+
+    const HWND hwnd = reinterpret_cast<HWND>(window->GetHandle());
+    if (hwnd == nullptr) return;
+
+    HWND header = nullptr;
+    if (dynamic_cast<wxListCtrl*>(window) != nullptr) {
+        header = ListView_GetHeader(hwnd);
+    }
+    if (header == nullptr) {
+        header = findSysHeader32(hwnd);
+    }
+    applyHeaderHwndTheme(header, theme, palette);
+}
+
+void applyFrameTitlebarTheme(wxWindow* window, Theme theme) {
+    if (dynamic_cast<wxTopLevelWindow*>(window) == nullptr) return;
+
+    const HWND hwnd = reinterpret_cast<HWND>(window->GetHandle());
+    if (hwnd == nullptr) return;
+
+    static HMODULE dwmModule = ::LoadLibraryW(L"dwmapi.dll");
+    static auto dwmSetWindowAttribute = reinterpret_cast<DwmSetWindowAttributeFn>(
+        dwmModule ? ::GetProcAddress(dwmModule, "DwmSetWindowAttribute") : nullptr);
+    if (dwmSetWindowAttribute == nullptr) return;
+
+    const bool darkLike = (theme == Theme::Dark);
+    const BOOL useDark = darkLike ? TRUE : FALSE;
+    constexpr DWORD kDwmUseImmersiveDarkModeOld = 19;
+    constexpr DWORD kDwmUseImmersiveDarkModeNew = 20;
+    dwmSetWindowAttribute(hwnd, kDwmUseImmersiveDarkModeOld, &useDark, sizeof(useDark));
+    dwmSetWindowAttribute(hwnd, kDwmUseImmersiveDarkModeNew, &useDark, sizeof(useDark));
+
+    if (auto setPreferredAppMode = resolveSetPreferredAppMode()) {
+        setPreferredAppMode(darkLike ? PreferredAppMode::ForceDark : PreferredAppMode::Default);
+    }
+    if (auto allowDarkModeForWindow = resolveAllowDarkModeForWindow()) {
+        allowDarkModeForWindow(hwnd, useDark);
+    }
+    if (auto setWindowTheme = resolveSetWindowTheme()) {
+        setWindowTheme(hwnd, darkLike ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+    }
+    if (auto flushMenuThemes = resolveFlushMenuThemes()) {
+        flushMenuThemes();
+    }
+    DrawMenuBar(hwnd);
+}
+
+void applyTopLevelSizeGripTheme(wxWindow* window, Theme theme) {
+    if (dynamic_cast<wxTopLevelWindow*>(window) == nullptr) return;
+
+    const HWND top = reinterpret_cast<HWND>(window->GetHandle());
+    if (top == nullptr) return;
+
+    const auto setWindowTheme = resolveSetWindowTheme();
+    if (setWindowTheme == nullptr) return;
+
+    const bool dark = (theme == Theme::Dark);
+    const BOOL useDark = dark ? TRUE : FALSE;
+
+    std::pair<Theme, SetWindowThemeFn> enumCtx{theme, setWindowTheme};
+
+    ::EnumChildWindows(
+        top,
+        [](HWND child, LPARAM lParam) -> BOOL {
+            auto* ctx = reinterpret_cast<std::pair<Theme, SetWindowThemeFn>*>(lParam);
+            if (ctx == nullptr || ctx->second == nullptr) return TRUE;
+
+            wchar_t className[64] = {};
+            if (::GetClassNameW(child, className, static_cast<int>(sizeof(className) / sizeof(className[0]))) <= 0) {
+                return TRUE;
+            }
+            const LONG_PTR style = ::GetWindowLongPtrW(child, GWL_STYLE);
+            const bool isScrollbarClass = (::wcscmp(className, L"SCROLLBAR") == 0);
+            const bool isStatusbarClass = (::wcscmp(className, STATUSCLASSNAMEW) == 0);
+            const bool isSizeGrip =
+                (style & SBS_SIZEGRIP) != 0 ||
+                (style & SBS_SIZEBOX) != 0 ||
+                (style & SBS_SIZEBOXBOTTOMRIGHTALIGN) != 0 ||
+                (style & SBS_SIZEBOXTOPLEFTALIGN) != 0 ||
+                (style & SBARS_SIZEGRIP) != 0;
+            if (!isSizeGrip) return TRUE;
+            if (!isScrollbarClass && !isStatusbarClass) return TRUE;
+
+            const bool darkLocal = (ctx->first == Theme::Dark);
+            if (auto allowDarkModeForWindow = resolveAllowDarkModeForWindow()) {
+                allowDarkModeForWindow(child, darkLocal ? TRUE : FALSE);
+            }
+            const wchar_t* darkClass = isStatusbarClass ? L"DarkMode_StatusBar" : L"DarkMode_Explorer";
+            const wchar_t* lightClass = isStatusbarClass ? L"Status" : L"Explorer";
+            ctx->second(child, darkLocal ? darkClass : lightClass, nullptr);
+            ::InvalidateRect(child, nullptr, TRUE);
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&enumCtx));
+
+    if (auto allowDarkModeForWindow = resolveAllowDarkModeForWindow()) {
+        allowDarkModeForWindow(top, useDark);
+    }
+}
+
+}  // namespace
+#endif
+
+ThemePalette paletteForTheme(Theme theme) {
+    switch (theme) {
+        case Theme::Dark:
+            return ThemePalette{
+                wxColour(30, 30, 30),
+                wxColour(45, 45, 45),
+                wxColour(230, 230, 230),
+                wxColour(60, 60, 60),
+                wxColour(230, 230, 230),
+                wxColour(75, 75, 75),
+                wxColour(240, 240, 240),
+            };
+        case Theme::Light:
+        default:
+            return ThemePalette{
+                wxColour(248, 248, 248),
+                wxColour(255, 255, 255),
+                wxColour(20, 20, 20),
+                wxColour(255, 255, 255),
+                wxColour(20, 20, 20),
+                wxColour(245, 245, 245),
+                wxColour(20, 20, 20),
+            };
+    }
+}
+
+Theme inferThemeFromWindow(const wxWindow* window) {
+    if (window == nullptr) return Theme::Light;
+
+    const wxWindow* probe = window;
+    wxColour bg;
+    while (probe != nullptr) {
+        bg = probe->GetBackgroundColour();
+        if (bg.IsOk()) break;
+        probe = probe->GetParent();
+    }
+    if (!bg.IsOk()) {
+        bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
+    }
+
+    const int luminance =
+        (299 * bg.Red() + 587 * bg.Green() + 114 * bg.Blue()) / 1000;
+    return luminance < 128 ? Theme::Dark : Theme::Light;
+}
+
+void applyThemeToWindowTree(wxWindow* root, const ThemePalette& palette, Theme theme) {
+    if (root == nullptr) return;
+
+    root->SetForegroundColour(palette.text);
+    root->SetBackgroundColour(palette.panelBg);
+    root->SetOwnForegroundColour(palette.text);
+    root->SetOwnBackgroundColour(palette.panelBg);
+
+#ifdef __WXMSW__
+    applyFrameTitlebarTheme(root, theme);
+    applyTopLevelSizeGripTheme(root, theme);
+#endif
+    ensureDarkDialogResizeGrip(root, palette, theme);
+
+    if (dynamic_cast<wxTextCtrl*>(root) != nullptr ||
+        dynamic_cast<wxListCtrl*>(root) != nullptr ||
+        dynamic_cast<wxListBox*>(root) != nullptr ||
+        dynamic_cast<wxChoice*>(root) != nullptr ||
+        dynamic_cast<wxSpinCtrl*>(root) != nullptr ||
+        dynamic_cast<wxTreeCtrl*>(root) != nullptr ||
+        dynamic_cast<wxTreeListCtrl*>(root) != nullptr ||
+        dynamic_cast<wxDatePickerCtrl*>(root) != nullptr) {
+        if (auto* text = dynamic_cast<wxTextCtrl*>(root)) {
+#ifdef __WXMSW__
+            hardenTextCtrlNativeTheme(text, theme);
+#else
+            text->SetThemeEnabled(!isDarkLikeTheme(theme));
+#endif
+        }
+        root->SetBackgroundColour(palette.inputBg);
+        root->SetForegroundColour(palette.inputText);
+        root->SetOwnBackgroundColour(palette.inputBg);
+        root->SetOwnForegroundColour(palette.inputText);
+#ifdef __WXMSW__
+        if (dynamic_cast<wxListCtrl*>(root) != nullptr ||
+            dynamic_cast<wxTreeListCtrl*>(root) != nullptr) {
+            applyNativeClassTheme(root, theme, L"DarkMode_Explorer", L"Explorer");
+            applyListHeaderTheme(root, theme, palette);
+        } else if (dynamic_cast<wxTextCtrl*>(root) != nullptr) {
+            // Do not apply Explorer class theming to edit controls.
+        } else {
+            applyNativeClassTheme(root, theme, L"DarkMode_Explorer", L"Explorer");
+        }
+#endif
+    }
+
+    if (dynamic_cast<wxStatusBar*>(root) != nullptr) {
+        root->SetBackgroundColour(palette.panelBg);
+        root->SetForegroundColour(palette.text);
+        root->SetOwnBackgroundColour(palette.panelBg);
+        root->SetOwnForegroundColour(palette.text);
+#ifdef __WXMSW__
+        applyNativeClassTheme(root, theme, L"DarkMode_StatusBar", L"Status");
+#endif
+    }
+
+    if (dynamic_cast<wxButton*>(root) != nullptr ||
+        dynamic_cast<wxBitmapButton*>(root) != nullptr ||
+        dynamic_cast<wxToggleButton*>(root) != nullptr) {
+        const bool darkLike = isDarkLikeTheme(theme);
+        root->SetThemeEnabled(!darkLike);
+        root->SetBackgroundColour(palette.buttonBg);
+        root->SetForegroundColour(palette.buttonText);
+        root->SetOwnBackgroundColour(palette.buttonBg);
+        root->SetOwnForegroundColour(palette.buttonText);
+
+        const wxColour normalBg = palette.buttonBg;
+        const int hoverLift = 18;
+        const int pressedLift = 30;
+        const wxColour hoverBg = darkLike ? lightenTowardWhite(normalBg, hoverLift) : normalBg;
+        const wxColour pressedBg = darkLike ? lightenTowardWhite(normalBg, pressedLift) : normalBg;
+        const wxColour btnFg = palette.buttonText;
+        gButtonVisualStates[root] = ButtonVisualState{
+            normalBg, hoverBg, pressedBg, btnFg, darkLike, false, false, false
+        };
+
+        if (!gButtonHoverBound.count(root)) {
+            gButtonHoverBound.insert(root);
+
+            root->Bind(wxEVT_ENTER_WINDOW, [root](wxMouseEvent& event) {
+                auto it = gButtonVisualStates.find(root);
+                if (it == gButtonVisualStates.end() || !it->second.darkLike) {
+                    event.Skip();
+                    return;
+                }
+                it->second.hovered = true;
+                const wxColour bg = it->second.pressed ? it->second.pressedBg : it->second.hoverBg;
+                root->SetBackgroundColour(bg);
+                root->SetForegroundColour(it->second.text);
+                root->Refresh();
+            });
+            root->Bind(wxEVT_LEAVE_WINDOW, [root](wxMouseEvent& event) {
+                auto it = gButtonVisualStates.find(root);
+                if (it == gButtonVisualStates.end() || !it->second.darkLike) {
+                    event.Skip();
+                    return;
+                }
+                it->second.hovered = false;
+                const bool toggleOn =
+                    dynamic_cast<wxToggleButton*>(root) != nullptr &&
+                    static_cast<wxToggleButton*>(root)->GetValue();
+                const wxColour bg =
+                    (it->second.focused || toggleOn) ? it->second.hoverBg : it->second.normalBg;
+                root->SetBackgroundColour(bg);
+                root->SetForegroundColour(it->second.text);
+                root->Refresh();
+            });
+            root->Bind(wxEVT_LEFT_DOWN, [root](wxMouseEvent& event) {
+                auto it = gButtonVisualStates.find(root);
+                if (it == gButtonVisualStates.end() || !it->second.darkLike) {
+                    event.Skip();
+                    return;
+                }
+                it->second.pressed = true;
+                root->SetBackgroundColour(it->second.pressedBg);
+                root->SetForegroundColour(it->second.text);
+                root->Refresh();
+                event.Skip();
+            });
+            root->Bind(wxEVT_LEFT_UP, [root](wxMouseEvent& event) {
+                auto it = gButtonVisualStates.find(root);
+                if (it == gButtonVisualStates.end() || !it->second.darkLike) {
+                    event.Skip();
+                    return;
+                }
+                it->second.pressed = false;
+                const wxPoint mousePos = wxGetMousePosition();
+                const wxPoint localPos = root->ScreenToClient(mousePos);
+                const bool inside = root->GetClientRect().Contains(localPos);
+                it->second.hovered = inside;
+                const bool toggleOn =
+                    dynamic_cast<wxToggleButton*>(root) != nullptr &&
+                    static_cast<wxToggleButton*>(root)->GetValue();
+                const wxColour bg =
+                    (inside || it->second.focused || toggleOn) ? it->second.hoverBg : it->second.normalBg;
+                root->SetBackgroundColour(bg);
+                root->SetForegroundColour(it->second.text);
+                root->Refresh();
+                event.Skip();
+            });
+            root->Bind(wxEVT_SET_FOCUS, [root](wxFocusEvent& event) {
+                auto it = gButtonVisualStates.find(root);
+                if (it == gButtonVisualStates.end() || !it->second.darkLike) {
+                    event.Skip();
+                    return;
+                }
+                it->second.focused = true;
+                root->SetBackgroundColour(it->second.hoverBg);
+                root->SetForegroundColour(it->second.text);
+                root->Refresh();
+                event.Skip();
+            });
+            root->Bind(wxEVT_KILL_FOCUS, [root](wxFocusEvent& event) {
+                auto it = gButtonVisualStates.find(root);
+                if (it == gButtonVisualStates.end() || !it->second.darkLike) {
+                    event.Skip();
+                    return;
+                }
+                it->second.focused = false;
+                it->second.pressed = false;
+                const bool toggleOn =
+                    dynamic_cast<wxToggleButton*>(root) != nullptr &&
+                    static_cast<wxToggleButton*>(root)->GetValue();
+                const wxColour bg =
+                    (it->second.hovered || toggleOn) ? it->second.hoverBg : it->second.normalBg;
+                root->SetBackgroundColour(bg);
+                root->SetForegroundColour(it->second.text);
+                root->Refresh();
+                event.Skip();
+            });
+            if (auto* toggle = dynamic_cast<wxToggleButton*>(root)) {
+                toggle->Bind(wxEVT_TOGGLEBUTTON, [root](wxCommandEvent& event) {
+                    auto it = gButtonVisualStates.find(root);
+                    if (it != gButtonVisualStates.end() && it->second.darkLike) {
+                        root->Refresh();
+                    }
+                    event.Skip();
+                });
+            }
+            root->SetBackgroundStyle(wxBG_STYLE_PAINT);
+            root->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent&) {});
+            root->Bind(wxEVT_PAINT, [root](wxPaintEvent& event) {
+                    const auto it = gButtonVisualStates.find(root);
+                    if (it == gButtonVisualStates.end() || !it->second.darkLike) {
+                        event.Skip();
+                        return;
+                    }
+                    wxAutoBufferedPaintDC dc(root);
+                    const wxRect rect = root->GetClientRect();
+                    const bool toggleOn =
+                        dynamic_cast<wxToggleButton*>(root) != nullptr &&
+                        static_cast<wxToggleButton*>(root)->GetValue();
+                    wxColour bg = it->second.normalBg;
+                    if (it->second.pressed) {
+                        bg = it->second.pressedBg;
+                    } else if (it->second.hovered || it->second.focused || toggleOn) {
+                        bg = it->second.hoverBg;
+                    }
+                    const wxColour fg = it->second.text;
+
+                    dc.SetBrush(wxBrush(bg));
+                    dc.SetPen(wxPen(lightenTowardWhite(bg, 28)));
+                    dc.DrawRectangle(rect);
+
+                    if (auto* bmpBtn = dynamic_cast<wxBitmapButton*>(root)) {
+                        const wxBitmap bmp = bmpBtn->GetBitmap();
+                        if (bmp.IsOk()) {
+                            const int x = (rect.GetWidth() - bmp.GetWidth()) / 2;
+                            const int y = (rect.GetHeight() - bmp.GetHeight()) / 2;
+                            dc.DrawBitmap(bmp, x, y, true);
+                        }
+                    } else {
+                        dc.SetTextForeground(fg);
+                        const wxString label = root->GetLabel();
+                        dc.DrawLabel(label, rect, wxALIGN_CENTER);
+                    }
+                });
+            root->Bind(wxEVT_DESTROY, [root](wxWindowDestroyEvent& event) {
+                gButtonHoverBound.erase(root);
+                gButtonVisualStates.erase(root);
+                event.Skip();
+            });
+        }
+#ifdef __WXMSW__
+        if (darkLike) {
+            applyNativeClassTheme(root, theme, L"", L"");
+        }
+#endif
+    }
+
+    if (dynamic_cast<wxStaticText*>(root) != nullptr ||
+        dynamic_cast<wxStaticBitmap*>(root) != nullptr) {
+        root->SetForegroundColour(palette.text);
+        root->SetBackgroundColour(palette.panelBg);
+        root->SetOwnForegroundColour(palette.text);
+        root->SetOwnBackgroundColour(palette.panelBg);
+    }
+
+    const wxWindowList& children = root->GetChildren();
+    for (wxWindowList::compatibility_iterator it = children.GetFirst(); it; it = it->GetNext()) {
+        applyThemeToWindowTree(it->GetData(), palette, theme);
+    }
+}
+
+void applyPaletteToTextCtrl(wxTextCtrl* text, const ThemePalette& palette, Theme theme) {
+    if (text == nullptr) return;
+#ifdef __WXMSW__
+    hardenTextCtrlNativeTheme(text, theme);
+#else
+    text->SetThemeEnabled(!isDarkLikeTheme(theme));
+#endif
+    text->SetBackgroundColour(palette.inputBg);
+    text->SetForegroundColour(palette.inputText);
+    text->SetOwnBackgroundColour(palette.inputBg);
+    text->SetOwnForegroundColour(palette.inputText);
+    wxTextAttr attr;
+    attr.SetTextColour(palette.inputText);
+    text->SetDefaultStyle(attr);
+    if (text->GetLastPosition() > 0)
+        text->SetStyle(0, text->GetLastPosition(), attr);
+    text->Refresh();
+}
+
+void installTextCtrlPlaceholder(wxTextCtrl* text, const wxString& hint) {
+    if (text == nullptr) return;
+#ifdef __WXMSW__
+    const HWND editHwnd = resolveNativeEditHwnd(text);
+    if (editHwnd == nullptr) {
+        text->CallAfter([text, hint]() { installTextCtrlPlaceholder(text, hint); });
+        return;
+    }
+    gPlaceholders[editHwnd] = PlaceholderState{text, hint.ToStdWstring()};
+    if (gPlaceholderSubclassed.insert(editHwnd).second) {
+        if (::SetWindowSubclass(editHwnd, placeholderEditSubclass, kPlaceholderSubclassId, 0) ==
+            FALSE) {
+            gPlaceholderSubclassed.erase(editHwnd);
+            gPlaceholders.erase(editHwnd);
+            return;
+        }
+    }
+    ::InvalidateRect(editHwnd, nullptr, TRUE);
+#else
+    text->SetHint(hint);
+#endif
+}
+
+void themeModalDialog(wxDialog* dlg, Theme theme) {
+    if (dlg == nullptr) return;
+    const ThemePalette palette = paletteForTheme(theme);
+    applyThemeToWindowTree(dlg, palette, theme);
+    dlg->SetBackgroundColour(palette.panelBg);
+    dlg->SetForegroundColour(palette.text);
+}
+
+int showThemedMessageDialog(wxWindow* parent, const wxString& message, const wxString& caption, long style) {
+    wxDialog dlg(parent, wxID_ANY, caption, wxDefaultPosition, wxDefaultSize,
+                 wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+    auto* root = new wxBoxSizer(wxVERTICAL);
+    auto* label = new wxStaticText(&dlg, wxID_ANY, message);
+    root->Add(label, 0, wxALL | wxEXPAND, 12);
+
+    const bool yesNo = (style & wxYES_NO) != 0;
+    if (yesNo) {
+        auto* buttons = new wxStdDialogButtonSizer();
+        auto* yesBtn = new wxButton(&dlg, wxID_YES);
+        auto* noBtn = new wxButton(&dlg, wxID_NO);
+        yesBtn->SetLabelText("Yes");
+        noBtn->SetLabelText("No");
+        yesBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_YES); });
+        noBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_NO); });
+        yesBtn->SetDefault();
+        buttons->AddButton(yesBtn);
+        buttons->AddButton(noBtn);
+        buttons->Realize();
+        root->Add(buttons, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 12);
+    } else {
+        if (auto* buttons = dlg.CreateButtonSizer(wxOK)) {
+            root->Add(buttons, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 12);
+        }
+    }
+
+    dlg.SetSizerAndFit(root);
+    const wxSize fitSize = dlg.GetSize();
+    dlg.SetSize(fitSize.GetWidth(), static_cast<int>(fitSize.GetHeight() * 1.10));
+    const Theme theme = inferThemeFromWindow(parent);
+    const ThemePalette palette = paletteForTheme(theme);
+    applyThemeToWindowTree(&dlg, palette, theme);
+    dlg.SetBackgroundColour(palette.panelBg);
+    dlg.SetForegroundColour(palette.text);
+    dlg.CentreOnParent();
+    return dlg.ShowModal();
+}
+
+void setToolbarEditVisible(wxBitmapButton* edit, bool visible) {
+    if (edit == nullptr) return;
+    edit->Show(visible);
+    if (auto* parent = edit->GetParent()) {
+        parent->Layout();
+    }
+}
+
+wxString deleteCardsConfirmMessage(std::size_t count, std::string_view singleCardName) {
+    if (count == 1) {
+        return wxString::Format(
+            "Delete \"%s\"?",
+            wxString::FromUTF8(singleCardName.data(), singleCardName.size()));
+    }
+    return wxString::Format("Delete %zu selected entries?", count);
+}
+
+int showThemedConfirmDialog(wxWindow* parent, const wxString& message, const wxString& caption) {
+    wxDialog dlg(parent, wxID_ANY, caption, wxDefaultPosition, wxDefaultSize,
+                 wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+    auto* root = new wxBoxSizer(wxVERTICAL);
+    auto* label = new wxStaticText(&dlg, wxID_ANY, message);
+    root->Add(label, 0, wxALL | wxEXPAND, 12);
+
+    auto* buttons = new wxStdDialogButtonSizer();
+    auto* yesBtn = new wxButton(&dlg, wxID_YES);
+    auto* noBtn = new wxButton(&dlg, wxID_NO);
+    yesBtn->SetLabelText("Yes");
+    noBtn->SetLabelText("No");
+    yesBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_YES); });
+    noBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_NO); });
+    yesBtn->SetDefault();
+    buttons->AddButton(yesBtn);
+    buttons->AddButton(noBtn);
+    buttons->Realize();
+    root->Add(buttons, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 12);
+
+    dlg.SetSizerAndFit(root);
+    const wxSize fitSize = dlg.GetSize();
+    dlg.SetSize(fitSize.GetWidth(), static_cast<int>(fitSize.GetHeight() * 1.10));
+    const Theme theme = inferThemeFromWindow(parent);
+    const ThemePalette palette = paletteForTheme(theme);
+    applyThemeToWindowTree(&dlg, palette, theme);
+    dlg.SetBackgroundColour(palette.panelBg);
+    dlg.SetForegroundColour(palette.text);
+    dlg.CentreOnParent();
+
+    return dlg.ShowModal();
+}
+
+}  // namespace tracker::ui

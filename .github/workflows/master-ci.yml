@@ -1,0 +1,155 @@
+name: Master CI
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  sonarqube:
+    name: SonarQube Cloud scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute Sonar project key
+        run: echo "SONAR_PROJECT_KEY=${GITHUB_REPOSITORY/\//_}" >> "$GITHUB_ENV"
+
+      - name: Install scan prerequisites
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y
+          cmake
+          ninja-build
+          gcovr
+          pkg-config
+          libgtk-3-dev
+          libwxgtk3.2-dev
+
+      - name: Configure with coverage instrumentation
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_C_COMPILER=gcc
+          -DCMAKE_CXX_COMPILER=g++
+          -DTRACKER_BUILD_TESTS=ON
+          -DTRACKER_USE_SYSTEM_WX=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS=--coverage
+          -DCMAKE_CXX_FLAGS=--coverage
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build and run tests for coverage
+        run: >
+          cmake --build build --parallel &&
+          ctest --test-dir build --output-on-failure
+
+      - name: Generate Sonar coverage report
+        run: >
+          gcovr -r .
+          --sonarqube build/sonarqube-coverage.xml
+          --exclude "build/_deps/"
+          --exclude-directories "build/_deps"
+          --exclude "^tests/"
+
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.organization=${{ github.repository_owner }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.sources=core,ui_wx,app
+            -Dsonar.cfamily.compile-commands=build/compile_commands.json
+            -Dsonar.coverageReportPaths=build/sonarqube-coverage.xml
+            -Dsonar.coverage.exclusions=**/ui_wx/**,**/app/**
+
+  compute-version:
+    name: Determine semantic version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      pr_title: ${{ steps.pr.outputs.pr_title }}
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve merged PR title for pushed commit
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const commitSha = context.sha;
+            const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: commitSha,
+            });
+
+            if (!pulls.data.length) {
+              core.setFailed(`No PR found for commit ${commitSha}. Release flow expects merges into master through PRs.`);
+              return;
+            }
+
+            const mergedPr = pulls.data.find((pr) => pr.merged_at) ?? pulls.data[0];
+            core.setOutput("pr_title", mergedPr.title);
+
+      - name: Resolve semantic version
+        id: version
+        run: bash scripts/compute_master_semver.sh "${{ steps.pr.outputs.pr_title }}"
+
+  build-windows:
+    name: Windows build + tests
+    needs:
+      - sonarqube
+      - compute-version
+    uses: ./.github/workflows/master-windows.yml
+    with:
+      version: ${{ needs.compute-version.outputs.version }}
+      merge_commit_sha: ${{ github.sha }}
+
+  release-master:
+    name: Tag and release on master
+    needs:
+      - compute-version
+      - build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tcg-game-tracker-windows-${{ needs.compute-version.outputs.version }}.zip
+          path: release/windows
+
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tcg-game-tracker-windows-installer-${{ needs.compute-version.outputs.version }}
+          path: release/installer
+
+      - name: Package release assets with semantic version
+        run: |
+          mkdir -p release-assets
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          zip -r "release-assets/tcg-game-tracker-windows-${VERSION}.zip" release/windows
+          cp release/installer/tcg-game-tracker-windows-installer.exe "release-assets/tcg-game-tracker-windows-installer-${VERSION}.exe"
+
+      - name: Create tag and GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.compute-version.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: release-assets/*
