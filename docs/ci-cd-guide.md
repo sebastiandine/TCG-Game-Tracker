@@ -6,8 +6,8 @@ This document describes the CI/CD setup for TCG Game Tracker.
 
 Two orchestrator workflows trigger from pushes:
 
-- **`feature-ci.yml`** — runs on every push to a non-`master` branch. Triggers SonarQube scan, Linux build, and Windows build.
-- **`master-ci.yml`** — runs on pushes to `master` (merged PRs). Computes a semantic version, triggers SonarQube scan and Windows build, then creates a GitHub release.
+- **`feature-ci.yml`** — runs on every push to a non-`master` branch. Triggers Linux build and Windows build. The SonarQube Cloud scan job is present but temporarily disabled (`if: false`).
+- **`master-ci.yml`** — runs on pushes to `master` (merged PRs). Computes a semantic version, runs the Windows build, then creates a GitHub release. The SonarQube Cloud scan job is present but temporarily disabled and is not a dependency of the Windows build.
 
 Each orchestrator calls reusable workflows for OS-specific work:
 

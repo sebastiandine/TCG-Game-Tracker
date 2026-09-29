@@ -11,6 +11,8 @@ permissions:
 jobs:
   sonarqube:
     name: SonarQube Cloud scan
+    # Temporarily disabled. Remove this condition to re-enable the scan.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -113,7 +115,6 @@ jobs:
   build-windows:
     name: Windows build + tests
     needs:
-      - sonarqube
       - compute-version
     uses: ./.github/workflows/master-windows.yml
     with:

@@ -24,7 +24,7 @@ ctest --test-dir build --output-on-failure
 
 ## Coverage Surface
 
-The CI Sonar scan reports coverage against `core/` paths that `tracker_core_tests` can execute. `ui_wx/` and the `app/` composition root are excluded from Sonar's coverage calculation because they are not run under the doctest suite; UI behavior is covered by manual validation.
+The CI Sonar scan is temporarily disabled. When enabled, it reports coverage against `core/` paths that `tracker_core_tests` can execute. `ui_wx/` and the `app/` composition root are excluded from Sonar's coverage calculation because they are not run under the doctest suite; UI behavior is covered by manual validation.
 
 ## Manual UI Validation
 
