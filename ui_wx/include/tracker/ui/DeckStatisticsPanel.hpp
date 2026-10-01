@@ -49,8 +49,7 @@ private:
         wxPanel*      row{nullptr};
         wxStaticText* opponent{nullptr};
         wxStaticText* date{nullptr};
-        wxTextCtrl*   notes{nullptr};
-        wxButton*     approve{nullptr};
+        wxStaticText* preview{nullptr};
     };
 
     void applyDashboardTheme();
@@ -60,6 +59,7 @@ private:
     void bindTable(MatchupTable& table);
     void refillTable(MatchupTable& table);
     void refillOpenNotes(const std::vector<OpenNote>& notes);
+    void selectOpenNote(int index);
     void onApproveNote(Game game, const std::string& opponentDeck);
     void selectMatchupView(bool archetypes);
     void onColumnClick(wxListEvent& evt);
@@ -81,11 +81,20 @@ private:
     StatCard      winPctCard_{};
     RankedList    best_{};
     RankedList    worst_{};
+    std::vector<OpenNote> openNotes_;
+    int               selectedNoteIndex_{-1};
+    int               approvedNoteIndex_{-1};
     wxPanel*          notesPanel_{nullptr};
     wxStaticText*     notesHeading_{nullptr};
     wxStaticText*     notesEmpty_{nullptr};
-    wxScrolledWindow* notesScroll_{nullptr};
-    wxPanel*          notesHost_{nullptr};
+    wxPanel*          notesContent_{nullptr};
+    wxScrolledWindow* notesListScroll_{nullptr};
+    wxPanel*          notesListHost_{nullptr};
+    wxPanel*          notesDetail_{nullptr};
+    wxStaticText*     detailOpponent_{nullptr};
+    wxStaticText*     detailDate_{nullptr};
+    wxButton*         detailApprove_{nullptr};
+    wxTextCtrl*       detailNotes_{nullptr};
     std::vector<OpenNoteRow> noteRows_;
     wxToggleButton* archetypesBtn_{nullptr};
     wxToggleButton* decksBtn_{nullptr};

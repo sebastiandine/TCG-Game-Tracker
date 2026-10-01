@@ -3,8 +3,10 @@
 #include "tracker/domain/Enums.hpp"
 
 #include <wx/colour.h>
+#include <wx/gdicmn.h>
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -37,6 +39,11 @@ void installTextCtrlPlaceholder(wxTextCtrl* text, const wxString& hint);
 void themeModalDialog(wxDialog* dlg, Theme theme);
 int showThemedMessageDialog(wxWindow* parent, const wxString& message, const wxString& caption, long style);
 int showThemedConfirmDialog(wxWindow* parent, const wxString& message, const wxString& caption);
+
+// Hand cursor while the pointer is over a row that does something on click.
+void installActionableRowCursor(
+    wxWindow* window,
+    std::function<bool(const wxPoint& clientPos)> isActionable);
 
 // Show/hide the shared or per-game Edit toolbar button and reflow its sizer
 // so Add/Delete close the gap when Edit is hidden for multi-select.
