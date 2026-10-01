@@ -22,7 +22,9 @@
 #include <wx/treectrl.h>
 #include <wx/treelist.h>
 #include <wx/window.h>
+#include <wx/cursor.h>
 
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <cstring>
@@ -56,6 +58,9 @@ struct GripVisualState {
     wxColour line;
 };
 std::unordered_map<wxWindow*, GripVisualState> gGripVisualStates;
+std::unordered_map<wxWindow*, std::function<bool(const wxPoint&)>>
+    gActionableRowPredicates;
+std::unordered_set<wxWindow*> gActionableRowCursorBound;
 
 wxColour lightenTowardWhite(const wxColour& c, int amount) {
     auto lift = [amount](unsigned char channel) -> unsigned char {
@@ -659,6 +664,115 @@ void applyTopLevelSizeGripTheme(wxWindow* window, Theme theme) {
     }
 }
 
+constexpr UINT_PTR kDatePickerParentSubclassId = 0x54524b44;  // 'TRKD'
+
+struct DatePickerThemeState {
+    Theme        theme{Theme::Light};
+    ThemePalette palette{};
+};
+
+std::unordered_map<HWND, DatePickerThemeState> gDatePickerThemes;
+std::unordered_set<HWND> gDatePickerParentSubclassed;
+std::unordered_set<HWND> gDatePickerDestroyBound;
+
+COLORREF colourToColorRef(const wxColour& c) {
+    return RGB(c.Red(), c.Green(), c.Blue());
+}
+
+void applyMonthCalColors(HWND dtp, const ThemePalette& palette, Theme theme) {
+    if (dtp == nullptr) return;
+
+    const wxColour titleBg = isDarkLikeTheme(theme)
+                                 ? lightenTowardWhite(palette.inputBg, 18)
+                                 : palette.inputBg;
+    const wxColour trailing = mixColours(palette.inputText, palette.inputBg, 2, 5);
+
+    DateTime_SetMonthCalColor(dtp, MCSC_BACKGROUND, colourToColorRef(palette.inputBg));
+    DateTime_SetMonthCalColor(dtp, MCSC_MONTHBK, colourToColorRef(palette.inputBg));
+    DateTime_SetMonthCalColor(dtp, MCSC_TEXT, colourToColorRef(palette.inputText));
+    DateTime_SetMonthCalColor(dtp, MCSC_TITLEBK, colourToColorRef(titleBg));
+    DateTime_SetMonthCalColor(dtp, MCSC_TITLETEXT, colourToColorRef(palette.inputText));
+    DateTime_SetMonthCalColor(dtp, MCSC_TRAILINGTEXT, colourToColorRef(trailing));
+
+    const HWND monthCal = DateTime_GetMonthCal(dtp);
+    if (monthCal == nullptr) return;
+
+    if (auto allowDarkModeForWindow = resolveAllowDarkModeForWindow()) {
+        allowDarkModeForWindow(monthCal, isDarkLikeTheme(theme) ? TRUE : FALSE);
+    }
+    MonthCal_SetColor(monthCal, MCSC_BACKGROUND, colourToColorRef(palette.inputBg));
+    MonthCal_SetColor(monthCal, MCSC_MONTHBK, colourToColorRef(palette.inputBg));
+    MonthCal_SetColor(monthCal, MCSC_TEXT, colourToColorRef(palette.inputText));
+    MonthCal_SetColor(monthCal, MCSC_TITLEBK, colourToColorRef(titleBg));
+    MonthCal_SetColor(monthCal, MCSC_TITLETEXT, colourToColorRef(palette.inputText));
+    MonthCal_SetColor(monthCal, MCSC_TRAILINGTEXT, colourToColorRef(trailing));
+}
+
+LRESULT CALLBACK datePickerParentSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                          UINT_PTR /*subclassId*/, DWORD_PTR /*refData*/) {
+    if (msg == WM_NOTIFY) {
+        auto* hdr = reinterpret_cast<NMHDR*>(lParam);
+        if (hdr != nullptr && hdr->code == DTN_DROPDOWN) {
+            const auto it = gDatePickerThemes.find(hdr->hwndFrom);
+            if (it != gDatePickerThemes.end()) {
+                applyMonthCalColors(hdr->hwndFrom, it->second.palette, it->second.theme);
+            }
+        }
+    } else if (msg == WM_NCDESTROY) {
+        gDatePickerParentSubclassed.erase(hwnd);
+        ::RemoveWindowSubclass(hwnd, datePickerParentSubclass, kDatePickerParentSubclassId);
+    }
+    return ::DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void applyDatePickerNativeTheme(wxDatePickerCtrl* picker, const ThemePalette& palette,
+                                Theme theme) {
+    if (picker == nullptr) return;
+    const HWND hwnd = reinterpret_cast<HWND>(picker->GetHandle());
+    if (hwnd == nullptr) return;
+
+    const bool dark = isDarkLikeTheme(theme);
+    if (auto allowDarkModeForWindow = resolveAllowDarkModeForWindow()) {
+        allowDarkModeForWindow(hwnd, dark ? TRUE : FALSE);
+        ::EnumChildWindows(
+            hwnd,
+            [](HWND child, LPARAM lParam) -> BOOL {
+                const bool childDark = lParam != 0;
+                if (auto allow = resolveAllowDarkModeForWindow()) {
+                    allow(child, childDark ? TRUE : FALSE);
+                }
+                if (auto setWindowTheme = resolveSetWindowTheme()) {
+                    setWindowTheme(child, childDark ? L"DarkMode_CFD" : L"Explorer",
+                                   nullptr);
+                }
+                return TRUE;
+            },
+            dark ? 1 : 0);
+    }
+    if (auto setWindowTheme = resolveSetWindowTheme()) {
+        setWindowTheme(hwnd, dark ? L"DarkMode_CFD" : L"Explorer", nullptr);
+    }
+
+    applyMonthCalColors(hwnd, palette, theme);
+    gDatePickerThemes[hwnd] = DatePickerThemeState{theme, palette};
+
+    if (gDatePickerDestroyBound.insert(hwnd).second) {
+        picker->Bind(wxEVT_DESTROY, [hwnd](wxWindowDestroyEvent& event) {
+            gDatePickerThemes.erase(hwnd);
+            gDatePickerDestroyBound.erase(hwnd);
+            event.Skip();
+        });
+    }
+
+    const HWND parent = ::GetParent(hwnd);
+    if (parent == nullptr) return;
+    if (!gDatePickerParentSubclassed.insert(parent).second) return;
+    if (::SetWindowSubclass(parent, datePickerParentSubclass, kDatePickerParentSubclassId,
+                            0) == FALSE) {
+        gDatePickerParentSubclassed.erase(parent);
+    }
+}
+
 }  // namespace
 #endif
 
@@ -721,14 +835,21 @@ void applyThemeToWindowTree(wxWindow* root, const ThemePalette& palette, Theme t
 #endif
     ensureDarkDialogResizeGrip(root, palette, theme);
 
-    if (dynamic_cast<wxTextCtrl*>(root) != nullptr ||
-        dynamic_cast<wxListCtrl*>(root) != nullptr ||
-        dynamic_cast<wxListBox*>(root) != nullptr ||
-        dynamic_cast<wxChoice*>(root) != nullptr ||
-        dynamic_cast<wxSpinCtrl*>(root) != nullptr ||
-        dynamic_cast<wxTreeCtrl*>(root) != nullptr ||
-        dynamic_cast<wxTreeListCtrl*>(root) != nullptr ||
-        dynamic_cast<wxDatePickerCtrl*>(root) != nullptr) {
+    if (auto* date = dynamic_cast<wxDatePickerCtrl*>(root)) {
+        date->SetBackgroundColour(palette.inputBg);
+        date->SetForegroundColour(palette.inputText);
+        date->SetOwnBackgroundColour(palette.inputBg);
+        date->SetOwnForegroundColour(palette.inputText);
+#ifdef __WXMSW__
+        applyDatePickerNativeTheme(date, palette, theme);
+#endif
+    } else if (dynamic_cast<wxTextCtrl*>(root) != nullptr ||
+               dynamic_cast<wxListCtrl*>(root) != nullptr ||
+               dynamic_cast<wxListBox*>(root) != nullptr ||
+               dynamic_cast<wxChoice*>(root) != nullptr ||
+               dynamic_cast<wxSpinCtrl*>(root) != nullptr ||
+               dynamic_cast<wxTreeCtrl*>(root) != nullptr ||
+               dynamic_cast<wxTreeListCtrl*>(root) != nullptr) {
         if (auto* text = dynamic_cast<wxTextCtrl*>(root)) {
 #ifdef __WXMSW__
             hardenTextCtrlNativeTheme(text, theme);
@@ -949,6 +1070,31 @@ void applyThemeToWindowTree(wxWindow* root, const ThemePalette& palette, Theme t
     for (wxWindowList::compatibility_iterator it = children.GetFirst(); it; it = it->GetNext()) {
         applyThemeToWindowTree(it->GetData(), palette, theme);
     }
+}
+
+void installActionableRowCursor(
+    wxWindow* window,
+    std::function<bool(const wxPoint& clientPos)> isActionable) {
+    if (window == nullptr || !isActionable) return;
+    gActionableRowPredicates[window] = std::move(isActionable);
+    if (!gActionableRowCursorBound.insert(window).second) return;
+
+    window->Bind(wxEVT_MOTION, [window](wxMouseEvent& event) {
+        const auto it = gActionableRowPredicates.find(window);
+        const bool hand =
+            it != gActionableRowPredicates.end() && it->second(event.GetPosition());
+        window->SetCursor(wxCursor(hand ? wxCURSOR_HAND : wxCURSOR_ARROW));
+        event.Skip();
+    });
+    window->Bind(wxEVT_LEAVE_WINDOW, [window](wxMouseEvent& event) {
+        window->SetCursor(wxCursor(wxCURSOR_ARROW));
+        event.Skip();
+    });
+    window->Bind(wxEVT_DESTROY, [window](wxWindowDestroyEvent& event) {
+        gActionableRowPredicates.erase(window);
+        gActionableRowCursorBound.erase(window);
+        event.Skip();
+    });
 }
 
 void applyPaletteToTextCtrl(wxTextCtrl* text, const ThemePalette& palette, Theme theme) {

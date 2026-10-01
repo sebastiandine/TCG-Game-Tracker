@@ -154,6 +154,12 @@ void DecksPanel::buildTree(wxSizer* parent) {
         tree_->UnsetToolTip();
         evt.Skip();
     });
+    installActionableRowCursor(tree_, [this](const wxPoint& pos) {
+        int flags = 0;
+        const auto item = tree_->HitTest(pos, flags);
+        if (!item.IsOk()) return false;
+        return dynamic_cast<DeckTreeItemData*>(tree_->GetItemData(item)) != nullptr;
+    });
 
     // Double-click: open edit dialog for child items (deck records).
     tree_->Bind(wxEVT_TREE_ITEM_ACTIVATED, [this](wxTreeEvent& evt) {

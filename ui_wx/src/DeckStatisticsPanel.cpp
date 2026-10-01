@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <wx/button.h>
+#include <wx/cursor.h>
 #include <wx/listctrl.h>
 #include <wx/scrolwin.h>
 #include <wx/simplebook.h>
@@ -152,6 +153,50 @@ void restoreSort(wxListCtrl* list, int sortCol, bool sortAsc) {
     list->Refresh();
 }
 
+wxString notePreviewLine(const std::string& notes) {
+    std::string line;
+    line.reserve(notes.size());
+    bool pendingSpace = false;
+    for (char c : notes) {
+        if (c == '\n' || c == '\r' || c == '\t') {
+            pendingSpace = !line.empty();
+            continue;
+        }
+        if (c == ' ' && (line.empty() || pendingSpace)) {
+            pendingSpace = true;
+            continue;
+        }
+        if (pendingSpace) {
+            line.push_back(' ');
+            pendingSpace = false;
+        }
+        line.push_back(c);
+    }
+    return wxString::FromUTF8(line.c_str());
+}
+
+wxColour notesRowFill(bool selected, Theme theme, const ThemePalette& palette) {
+    const wxColour base = dashboardCardFill(theme, palette);
+    const int delta = 22;
+    auto clamp = [](int v) -> unsigned char {
+        if (v < 0) return 0;
+        if (v > 255) return 255;
+        return static_cast<unsigned char>(v);
+    };
+    if (!selected) return base;
+    if (theme == Theme::Dark) {
+        return wxColour(clamp(base.Red() + delta), clamp(base.Green() + delta),
+                        clamp(base.Blue() + delta));
+    }
+    return wxColour(clamp(base.Red() - delta), clamp(base.Green() - delta),
+                    clamp(base.Blue() - delta));
+}
+
+void bindNoteRowCursor(wxWindow* window) {
+    if (window == nullptr) return;
+    window->SetCursor(wxCursor(wxCURSOR_HAND));
+}
+
 }  // namespace
 
 DeckStatisticsPanel::DeckStatisticsPanel(wxWindow* parent, AppContext& ctx)
@@ -185,6 +230,7 @@ DeckStatisticsPanel::DeckStatisticsPanel(wxWindow* parent, AppContext& ctx)
 
     notesPanel_ = new wxPanel(this);
     bindDashboardCardChrome(notesPanel_);
+    notesPanel_->SetMinSize(wxSize(-1, 240));
     auto* notesSizer = new wxBoxSizer(wxVERTICAL);
     notesHeading_ = new wxStaticText(notesPanel_, wxID_ANY, "Open Notes");
     wxFont notesHeadingFont = notesHeading_->GetFont();
@@ -195,18 +241,55 @@ DeckStatisticsPanel::DeckStatisticsPanel(wxWindow* parent, AppContext& ctx)
     notesEmpty_ = new wxStaticText(notesPanel_, wxID_ANY, "No open notes");
     notesSizer->Add(notesEmpty_, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 10);
 
-    notesScroll_ = new wxScrolledWindow(notesPanel_, wxID_ANY, wxDefaultPosition,
-                                        wxDefaultSize, wxVSCROLL | wxBORDER_NONE);
-    notesScroll_->SetScrollRate(0, 10);
-    notesScroll_->SetMinSize(wxSize(-1, 180));
-    notesHost_ = new wxPanel(notesScroll_);
-    notesHost_->SetSizer(new wxBoxSizer(wxVERTICAL));
-    auto* scrollSizer = new wxBoxSizer(wxVERTICAL);
-    scrollSizer->Add(notesHost_, 1, wxEXPAND);
-    notesScroll_->SetSizer(scrollSizer);
-    notesSizer->Add(notesScroll_, 1, wxEXPAND);
+    notesContent_ = new wxPanel(notesPanel_);
+    auto* split = new wxBoxSizer(wxHORIZONTAL);
+
+    notesListScroll_ = new wxScrolledWindow(notesContent_, wxID_ANY, wxDefaultPosition,
+                                            wxDefaultSize, wxVSCROLL | wxBORDER_NONE);
+    notesListScroll_->SetScrollRate(0, 10);
+    notesListScroll_->SetMinSize(wxSize(220, 200));
+    notesListHost_ = new wxPanel(notesListScroll_);
+    notesListHost_->SetSizer(new wxBoxSizer(wxVERTICAL));
+    auto* listScrollSizer = new wxBoxSizer(wxVERTICAL);
+    listScrollSizer->Add(notesListHost_, 1, wxEXPAND);
+    notesListScroll_->SetSizer(listScrollSizer);
+
+    notesDetail_ = new wxPanel(notesContent_);
+    auto* detailSizer = new wxBoxSizer(wxVERTICAL);
+    auto* detailHeader = new wxBoxSizer(wxHORIZONTAL);
+    detailOpponent_ = new wxStaticText(notesDetail_, wxID_ANY, wxEmptyString,
+                                       wxDefaultPosition, wxDefaultSize,
+                                       wxST_ELLIPSIZE_END);
+    wxFont detailNameFont = detailOpponent_->GetFont();
+    detailNameFont.MakeBold();
+    detailOpponent_->SetFont(detailNameFont);
+    detailDate_ = new wxStaticText(notesDetail_, wxID_ANY, wxEmptyString);
+    detailApprove_ = new wxButton(notesDetail_, wxID_ANY, "Approve");
+    detailApprove_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        if (selectedNoteIndex_ < 0 ||
+            static_cast<std::size_t>(selectedNoteIndex_) >= openNotes_.size()) {
+            return;
+        }
+        const OpenNote& note = openNotes_[static_cast<std::size_t>(selectedNoteIndex_)];
+        onApproveNote(note.game, note.opponentDeck);
+    });
+    detailHeader->Add(detailOpponent_, 1, wxALIGN_CENTER_VERTICAL);
+    detailHeader->Add(detailDate_, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+    detailHeader->Add(detailApprove_, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+    detailSizer->Add(detailHeader, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
+
+    detailNotes_ = new wxTextCtrl(notesDetail_, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                                  wxDefaultSize,
+                                  wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH2);
+    detailSizer->Add(detailNotes_, 1, wxEXPAND | wxALL, 8);
+    notesDetail_->SetSizer(detailSizer);
+
+    split->Add(notesListScroll_, 1, wxEXPAND);
+    split->Add(notesDetail_, 2, wxEXPAND | wxLEFT, 8);
+    notesContent_->SetSizer(split);
+    notesContent_->Hide();
+    notesSizer->Add(notesContent_, 1, wxEXPAND | wxBOTTOM, 8);
     notesPanel_->SetSizer(notesSizer);
-    notesScroll_->Hide();
     root->Add(notesPanel_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
 
     auto* toolbar = new wxBoxSizer(wxHORIZONTAL);
@@ -286,83 +369,151 @@ void DeckStatisticsPanel::applyOpenNotesTheme() {
     paintDashboardSurface(notesPanel_, fill, palette.text);
     paintDashboardSurface(notesHeading_, fill, palette.text);
     paintDashboardSurface(notesEmpty_, fill, muted);
-    paintDashboardSurface(notesScroll_, fill, palette.text);
-    paintDashboardSurface(notesHost_, fill, palette.text);
-    for (auto& row : noteRows_) {
-        paintDashboardSurface(row.row, fill, palette.text);
-        paintDashboardSurface(row.opponent, fill, palette.text);
-        paintDashboardSurface(row.date, fill, muted);
-        if (row.notes != nullptr) {
-            applyPaletteToTextCtrl(row.notes, palette, theme);
-        }
+    paintDashboardSurface(notesContent_, fill, palette.text);
+    paintDashboardSurface(notesListScroll_, fill, palette.text);
+    paintDashboardSurface(notesListHost_, fill, palette.text);
+    paintDashboardSurface(notesDetail_, fill, palette.text);
+    paintDashboardSurface(detailOpponent_, fill, palette.text);
+    paintDashboardSurface(detailDate_, fill, muted);
+    if (detailNotes_ != nullptr) {
+        applyPaletteToTextCtrl(detailNotes_, palette, theme);
+    }
+    for (std::size_t i = 0; i < noteRows_.size(); ++i) {
+        auto& row = noteRows_[i];
+        const bool selected = static_cast<int>(i) == selectedNoteIndex_;
+        const wxColour rowFill = notesRowFill(selected, theme, palette);
+        paintDashboardSurface(row.row, rowFill, palette.text);
+        paintDashboardSurface(row.opponent, rowFill, palette.text);
+        paintDashboardSurface(row.date, rowFill, muted);
+        paintDashboardSurface(row.preview, rowFill, muted);
     }
     if (notesPanel_ != nullptr) notesPanel_->Refresh();
 }
 
+void DeckStatisticsPanel::selectOpenNote(int index) {
+    if (openNotes_.empty()) {
+        selectedNoteIndex_ = -1;
+        if (detailOpponent_ != nullptr) detailOpponent_->SetLabel(wxEmptyString);
+        if (detailDate_ != nullptr) detailDate_->SetLabel(wxEmptyString);
+        if (detailNotes_ != nullptr) detailNotes_->ChangeValue(wxEmptyString);
+        applyOpenNotesTheme();
+        return;
+    }
+    if (index < 0) index = 0;
+    if (index >= static_cast<int>(openNotes_.size())) {
+        index = static_cast<int>(openNotes_.size()) - 1;
+    }
+    selectedNoteIndex_ = index;
+    const OpenNote& note = openNotes_[static_cast<std::size_t>(index)];
+    if (detailOpponent_ != nullptr) {
+        detailOpponent_->SetLabel(wxString::FromUTF8(note.opponentDeck.c_str()));
+    }
+    if (detailDate_ != nullptr) {
+        detailDate_->SetLabel(wxString::FromUTF8(note.game.playedOn.c_str()));
+    }
+    if (detailNotes_ != nullptr) {
+        detailNotes_->ChangeValue(wxString::FromUTF8(note.game.notes.c_str()));
+    }
+    applyOpenNotesTheme();
+    if (notesContent_ != nullptr) notesContent_->Layout();
+}
+
 void DeckStatisticsPanel::refillOpenNotes(const std::vector<OpenNote>& notes) {
     noteRows_.clear();
-    if (notesHost_ == nullptr || notesScroll_ == nullptr ||
-        notesEmpty_ == nullptr) {
+    openNotes_ = notes;
+    if (notesListHost_ == nullptr || notesListScroll_ == nullptr ||
+        notesEmpty_ == nullptr || notesContent_ == nullptr ||
+        notesHeading_ == nullptr) {
         return;
     }
 
-    notesHost_->Freeze();
-    auto* hostSizer = notesHost_->GetSizer();
+    notesListHost_->Freeze();
+    auto* hostSizer = notesListHost_->GetSizer();
     if (hostSizer == nullptr) {
         hostSizer = new wxBoxSizer(wxVERTICAL);
-        notesHost_->SetSizer(hostSizer);
+        notesListHost_->SetSizer(hostSizer);
     } else {
         hostSizer->Clear(true);
     }
 
     const bool empty = notes.empty();
+    if (empty) {
+        notesHeading_->SetLabel("Open Notes");
+    } else {
+        notesHeading_->SetLabel(
+            wxString::Format("Open Notes (%zu)", notes.size()));
+    }
     notesEmpty_->Show(empty);
-    notesScroll_->Show(!empty);
+    notesContent_->Show(!empty);
+    notesPanel_->SetMinSize(wxSize(-1, empty ? -1 : 240));
 
     if (!empty) {
-        for (const auto& note : notes) {
-            auto* row = new wxPanel(notesHost_);
+        for (std::size_t i = 0; i < notes.size(); ++i) {
+            const auto& note = notes[i];
+            auto* row = new wxPanel(notesListHost_);
+            bindNoteRowCursor(row);
             auto* col = new wxBoxSizer(wxVERTICAL);
 
-            auto* header = new wxBoxSizer(wxHORIZONTAL);
             auto* opponent = new wxStaticText(
                 row, wxID_ANY, wxString::FromUTF8(note.opponentDeck.c_str()),
                 wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END);
             wxFont nameFont = opponent->GetFont();
             nameFont.MakeBold();
             opponent->SetFont(nameFont);
+            bindNoteRowCursor(opponent);
 
             auto* date = new wxStaticText(
                 row, wxID_ANY, wxString::FromUTF8(note.game.playedOn.c_str()));
+            bindNoteRowCursor(date);
 
-            auto* approve = new wxButton(row, wxID_ANY, "Approve");
-            const Game game = note.game;
-            const std::string opponentDeck = note.opponentDeck;
-            approve->Bind(wxEVT_BUTTON, [this, game, opponentDeck](wxCommandEvent&) {
-                onApproveNote(game, opponentDeck);
-            });
+            auto* preview = new wxStaticText(
+                row, wxID_ANY, notePreviewLine(note.game.notes),
+                wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END);
+            bindNoteRowCursor(preview);
 
-            header->Add(opponent, 1, wxALIGN_CENTER_VERTICAL);
-            header->Add(date, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
-            header->Add(approve, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
-            col->Add(header, 0, wxEXPAND);
+            const int index = static_cast<int>(i);
+            auto bindSelect = [this, index](wxWindow* window) {
+                window->Bind(wxEVT_LEFT_DOWN, [this, index](wxMouseEvent&) {
+                    selectOpenNote(index);
+                });
+            };
+            bindSelect(row);
+            bindSelect(opponent);
+            bindSelect(date);
+            bindSelect(preview);
 
-            auto* notesCtrl = new wxTextCtrl(
-                row, wxID_ANY, wxString::FromUTF8(note.game.notes.c_str()),
-                wxDefaultPosition, wxSize(-1, 72),
-                wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH2);
-            col->Add(notesCtrl, 0, wxEXPAND | wxTOP, 6);
-
+            col->Add(opponent, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
+            col->Add(date, 0, wxEXPAND | wxLEFT | wxRIGHT, 8);
+            col->Add(preview, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
             row->SetSizer(col);
-            hostSizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-            noteRows_.push_back(
-                OpenNoteRow{row, opponent, date, notesCtrl, approve});
+            hostSizer->Add(row, 0, wxEXPAND | wxBOTTOM, 4);
+            noteRows_.push_back(OpenNoteRow{row, opponent, date, preview});
         }
     }
 
-    notesHost_->Fit();
-    notesScroll_->FitInside();
-    notesHost_->Thaw();
+    notesListHost_->Fit();
+    notesListScroll_->FitInside();
+    notesListHost_->Thaw();
+
+    int select = 0;
+    if (approvedNoteIndex_ >= 0) {
+        if (static_cast<std::size_t>(approvedNoteIndex_) < notes.size()) {
+            select = approvedNoteIndex_;
+        } else if (!notes.empty()) {
+            select = static_cast<int>(notes.size()) - 1;
+        }
+        approvedNoteIndex_ = -1;
+    } else if (selectedNoteIndex_ >= 0 &&
+               static_cast<std::size_t>(selectedNoteIndex_) < notes.size()) {
+        select = selectedNoteIndex_;
+    }
+
+    if (empty) {
+        selectedNoteIndex_ = -1;
+        applyOpenNotesTheme();
+    } else {
+        selectOpenNote(select);
+    }
     if (notesPanel_ != nullptr) notesPanel_->Layout();
 }
 
@@ -376,8 +527,11 @@ void DeckStatisticsPanel::onApproveNote(Game game,
         return;
     }
 
+    approvedNoteIndex_ = selectedNoteIndex_;
+
     auto result = ctx_.games.clearNotes(game);
     if (!result) {
+        approvedNoteIndex_ = -1;
         showThemedMessageDialog(this,
                                 wxString::FromUTF8(result.error().c_str()),
                                 "Error", wxOK);
@@ -504,10 +658,8 @@ void DeckStatisticsPanel::applyTheme() {
     if (filterInput_ != nullptr) {
         applyPaletteToTextCtrl(filterInput_, palette, theme);
     }
-    for (auto& row : noteRows_) {
-        if (row.notes != nullptr) {
-            applyPaletteToTextCtrl(row.notes, palette, theme);
-        }
+    if (detailNotes_ != nullptr) {
+        applyPaletteToTextCtrl(detailNotes_, palette, theme);
     }
     applyListPalette();
     applyDashboardTheme();

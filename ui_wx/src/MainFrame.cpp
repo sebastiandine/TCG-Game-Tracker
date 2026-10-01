@@ -51,6 +51,7 @@ MainFrame::MainFrame(AppContext& ctx)
     CallAfter([this] {
         restoreSelection();
     });
+    Maximize(true);
 }
 
 void MainFrame::buildMenuBar() {

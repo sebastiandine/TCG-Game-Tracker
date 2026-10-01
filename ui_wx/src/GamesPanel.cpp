@@ -134,6 +134,11 @@ void GamesPanel::buildList(wxSizer* parent) {
 
     list_->Bind(wxEVT_LIST_ITEM_ACTIVATED, &GamesPanel::onRowActivated, this);
     list_->Bind(wxEVT_LIST_COL_CLICK, &GamesPanel::onColumnClick, this);
+    installActionableRowCursor(list_, [this](const wxPoint& pos) {
+        int flags = 0;
+        const long item = list_->HitTest(pos, flags);
+        return item != wxNOT_FOUND && (flags & wxLIST_HITTEST_ONITEM) != 0;
+    });
 }
 
 void GamesPanel::onAdd() {

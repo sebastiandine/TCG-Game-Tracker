@@ -8,6 +8,7 @@
 #include <string>
 
 #include <wx/clntdata.h>
+#include <wx/dataview.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
@@ -35,6 +36,25 @@ public:
 private:
     DeckStatsKey key_;
 };
+
+void installTreeListRowCursor(wxTreeListCtrl* tree, wxWindow* window) {
+    if (tree == nullptr || window == nullptr) return;
+    installActionableRowCursor(window, [tree, window](const wxPoint& pos) {
+        wxDataViewCtrl* view = tree->GetDataView();
+        if (view == nullptr) return false;
+        const wxPoint viewPos =
+            view->ScreenToClient(window->ClientToScreen(pos));
+        wxDataViewItem item;
+        wxDataViewColumn* column = nullptr;
+        view->HitTest(viewPos, item, column);
+        return item.IsOk();
+    });
+    const wxWindowList& children = window->GetChildren();
+    for (wxWindowList::compatibility_iterator it = children.GetFirst(); it;
+         it = it->GetNext()) {
+        installTreeListRowCursor(tree, it->GetData());
+    }
+}
 
 bool containsCI(const std::string& haystack, const std::string& needle) {
     if (needle.empty()) return true;
@@ -163,6 +183,10 @@ StatisticsPanel::StatisticsPanel(
     filterInput_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) {
         onFilterChanged();
     });
+
+    wxWindow* motionTarget = tree_->GetView();
+    if (motionTarget == nullptr) motionTarget = tree_;
+    installTreeListRowCursor(tree_, motionTarget);
 
     root->Add(tree_, 1, wxEXPAND | wxALL, 12);
     SetSizer(root);
