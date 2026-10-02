@@ -18,7 +18,10 @@
 #include <wx/sizer.h>
 #include <wx/textctrl.h>
 #include <wx/toplevel.h>
+#include <wx/calctrl.h>
+#include <wx/combo.h>
 #include <wx/datectrl.h>
+#include <wx/generic/calctrlg.h>
 #include <wx/treectrl.h>
 #include <wx/treelist.h>
 #include <wx/window.h>
@@ -164,6 +167,154 @@ void ensureDarkDialogResizeGrip(wxWindow* window, const ThemePalette& palette, T
         });
     }
 }
+
+void applyGenericCalendarTheme(wxGenericCalendarCtrl* cal, const ThemePalette& palette,
+                               Theme theme) {
+    if (cal == nullptr) return;
+
+    const wxColour headerBg = isDarkLikeTheme(theme)
+                                  ? lightenTowardWhite(palette.inputBg, 18)
+                                  : palette.inputBg;
+
+    cal->SetBackgroundColour(palette.inputBg);
+    cal->SetForegroundColour(palette.inputText);
+    cal->SetOwnBackgroundColour(palette.inputBg);
+    cal->SetOwnForegroundColour(palette.inputText);
+    cal->SetHeaderColours(palette.inputText, headerBg);
+    cal->SetHighlightColours(palette.inputBg, palette.inputText);
+    cal->SetHolidayColours(palette.inputText, palette.inputBg);
+
+    wxWindow* parent = cal->GetParent();
+    while (parent != nullptr) {
+        parent->SetBackgroundColour(palette.inputBg);
+        parent->SetForegroundColour(palette.inputText);
+        parent->SetOwnBackgroundColour(palette.inputBg);
+        parent->SetOwnForegroundColour(palette.inputText);
+        if (parent->IsTopLevel()) break;
+        parent = parent->GetParent();
+    }
+    cal->Refresh();
+}
+
+class GenericCalendarPopup : public wxComboPopup {
+public:
+    bool Create(wxWindow* parent) override {
+        cal_ = new wxGenericCalendarCtrl(
+            parent, wxID_ANY, wxDefaultDateTime, wxDefaultPosition, wxDefaultSize,
+            wxCAL_SEQUENTIAL_MONTH_SELECTION | wxCAL_SHOW_HOLIDAYS | wxBORDER_SUNKEN);
+
+        cal_->Bind(wxEVT_CALENDAR_SEL_CHANGED, [this](wxCalendarEvent& ev) {
+            if (m_combo != nullptr && cal_ != nullptr) {
+                m_combo->SetText(cal_->GetDate().FormatDate());
+            }
+            ev.Skip();
+        });
+        cal_->Bind(wxEVT_CALENDAR_DOUBLECLICKED, [this](wxCalendarEvent& ev) {
+            Dismiss();
+            ev.Skip();
+        });
+        cal_->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent& ev) {
+            wxDateTime date;
+            const bool onDay =
+                cal_ != nullptr && cal_->HitTest(ev.GetPosition(), &date) == wxCAL_HITTEST_DAY;
+            ev.Skip();
+            if (onDay && cal_ != nullptr) {
+                cal_->CallAfter([this]() { Dismiss(); });
+            }
+        });
+        return true;
+    }
+
+    wxWindow* GetControl() override { return cal_; }
+
+    void SetStringValue(const wxString& value) override {
+        if (cal_ == nullptr) return;
+        wxDateTime dt;
+        if (dt.ParseDate(value) && dt.IsValid()) {
+            cal_->SetDate(dt);
+        }
+    }
+
+    wxString GetStringValue() const override {
+        if (cal_ == nullptr || !cal_->GetDate().IsValid()) return {};
+        return cal_->GetDate().FormatDate();
+    }
+
+    wxSize GetAdjustedSize(int minWidth, int /*prefHeight*/, int /*maxHeight*/) override {
+        wxSize sz = cal_ != nullptr ? cal_->GetBestSize() : wxSize(240, 180);
+        if (sz.x < minWidth) sz.x = minWidth;
+        return sz;
+    }
+
+    wxGenericCalendarCtrl* calendar() const { return cal_; }
+
+private:
+    wxGenericCalendarCtrl* cal_{nullptr};
+};
+
+wxGenericCalendarCtrl* calendarFromCombo(wxComboCtrl* combo) {
+    if (combo == nullptr) return nullptr;
+    wxComboPopup* popup = combo->GetPopupControl();
+    if (popup == nullptr) return nullptr;
+    return wxDynamicCast(popup->GetControl(), wxGenericCalendarCtrl);
+}
+
+}  // namespace
+
+ThemedDatePickerCtrl::ThemedDatePickerCtrl(wxWindow* parent, wxWindowID id) {
+    Create(parent, id, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0);
+#ifdef __WXMSW__
+    UseAltPopupWindow();
+#endif
+    SetPopupControl(new GenericCalendarPopup());
+    SetDate(wxDateTime::Today());
+
+    Bind(wxEVT_COMBOBOX_DROPDOWN, [this](wxCommandEvent& event) {
+        event.Skip();
+        CallAfter([this]() {
+            const Theme theme = inferThemeFromWindow(this);
+            ApplyTheme(paletteForTheme(theme), theme);
+        });
+    });
+    if (wxWindow* btn = GetButton()) {
+        btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent& event) {
+            event.Skip();
+            CallAfter([this]() {
+                const Theme theme = inferThemeFromWindow(this);
+                ApplyTheme(paletteForTheme(theme), theme);
+            });
+        });
+    }
+}
+
+void ThemedDatePickerCtrl::SetDate(const wxDateTime& date) {
+    const wxDateTime value = date.IsValid() ? date : wxDateTime::Today();
+    if (auto* cal = calendarFromCombo(this)) {
+        cal->SetDate(value);
+    }
+    SetText(value.FormatDate());
+}
+
+wxDateTime ThemedDatePickerCtrl::GetDate() const {
+    if (auto* cal = calendarFromCombo(const_cast<ThemedDatePickerCtrl*>(this))) {
+        const wxDateTime calDate = cal->GetDate();
+        if (calDate.IsValid()) return calDate;
+    }
+    wxDateTime parsed;
+    if (parsed.ParseDate(GetValue()) && parsed.IsValid()) return parsed;
+    return wxDateTime::Today();
+}
+
+void ThemedDatePickerCtrl::ApplyTheme(const ThemePalette& palette, Theme theme) {
+    SetBackgroundColour(palette.inputBg);
+    SetForegroundColour(palette.inputText);
+    SetOwnBackgroundColour(palette.inputBg);
+    SetOwnForegroundColour(palette.inputText);
+    if (wxTextCtrl* text = GetTextCtrl()) {
+        applyPaletteToTextCtrl(text, palette, theme);
+    }
+    applyGenericCalendarTheme(calendarFromCombo(this), palette, theme);
+    Refresh();
 }
 
 #ifdef __WXMSW__
@@ -835,18 +986,27 @@ void applyThemeToWindowTree(wxWindow* root, const ThemePalette& palette, Theme t
 #endif
     ensureDarkDialogResizeGrip(root, palette, theme);
 
-    if (auto* date = dynamic_cast<wxDatePickerCtrl*>(root)) {
+    if (auto* date = dynamic_cast<ThemedDatePickerCtrl*>(root)) {
         date->SetBackgroundColour(palette.inputBg);
         date->SetForegroundColour(palette.inputText);
         date->SetOwnBackgroundColour(palette.inputBg);
         date->SetOwnForegroundColour(palette.inputText);
+        date->ApplyTheme(palette, theme);
+    } else if (auto* cal = dynamic_cast<wxGenericCalendarCtrl*>(root)) {
+        applyGenericCalendarTheme(cal, palette, theme);
+    } else if (auto* nativeDate = dynamic_cast<wxDatePickerCtrl*>(root)) {
+        nativeDate->SetBackgroundColour(palette.inputBg);
+        nativeDate->SetForegroundColour(palette.inputText);
+        nativeDate->SetOwnBackgroundColour(palette.inputBg);
+        nativeDate->SetOwnForegroundColour(palette.inputText);
 #ifdef __WXMSW__
-        applyDatePickerNativeTheme(date, palette, theme);
+        applyDatePickerNativeTheme(nativeDate, palette, theme);
 #endif
     } else if (dynamic_cast<wxTextCtrl*>(root) != nullptr ||
                dynamic_cast<wxListCtrl*>(root) != nullptr ||
                dynamic_cast<wxListBox*>(root) != nullptr ||
                dynamic_cast<wxChoice*>(root) != nullptr ||
+               dynamic_cast<wxComboCtrl*>(root) != nullptr ||
                dynamic_cast<wxSpinCtrl*>(root) != nullptr ||
                dynamic_cast<wxTreeCtrl*>(root) != nullptr ||
                dynamic_cast<wxTreeListCtrl*>(root) != nullptr) {

@@ -4,13 +4,14 @@
 #include "tracker/domain/DeckGroup.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <functional>
 #include <map>
+#include <memory>
 #include <string>
 
 #include <wx/button.h>
 #include <wx/choice.h>
-#include <wx/datectrl.h>
-#include <wx/dateevt.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
@@ -44,6 +45,94 @@ std::vector<ResultScoreEntry> buildResultScoreEntries() {
             std::string(to_string(r)) + " (" + std::string(to_string(s)) + ")"});
     }
     return entries;
+}
+
+void installChoicePrefixSearch(wxChoice* choice, std::function<void()> onChanged) {
+    if (choice == nullptr) return;
+
+    struct State {
+        wxString buffer;
+        std::chrono::steady_clock::time_point lastKey{};
+        bool ignoringChoice{false};
+    };
+    auto state = std::make_shared<State>();
+
+    auto selectPrefix = [choice, state, onChanged](const wxString& prefix) {
+        if (prefix.empty()) return true;
+        const wxString needle = prefix.Lower();
+        const unsigned count = choice->GetCount();
+        for (unsigned i = 0; i < count; ++i) {
+            if (choice->GetString(i).Lower().StartsWith(needle)) {
+                if (choice->GetSelection() != static_cast<int>(i)) {
+                    state->ignoringChoice = true;
+                    choice->SetSelection(static_cast<int>(i));
+                    state->ignoringChoice = false;
+                    if (onChanged) onChanged();
+                }
+                return true;
+            }
+        }
+        return false;
+    };
+
+    choice->Bind(wxEVT_CHAR_HOOK, [state, selectPrefix](wxKeyEvent& event) {
+        if (event.ControlDown() || event.AltDown() || event.MetaDown()) {
+            event.Skip();
+            return;
+        }
+
+        const int key = event.GetKeyCode();
+        if (key == WXK_TAB || key == WXK_RETURN || key == WXK_NUMPAD_ENTER ||
+            key == WXK_ESCAPE) {
+            event.Skip();
+            return;
+        }
+        if (key == WXK_UP || key == WXK_DOWN || key == WXK_LEFT || key == WXK_RIGHT ||
+            key == WXK_HOME || key == WXK_END || key == WXK_PAGEUP || key == WXK_PAGEDOWN ||
+            key == WXK_NUMPAD_UP || key == WXK_NUMPAD_DOWN ||
+            key == WXK_NUMPAD_HOME || key == WXK_NUMPAD_END ||
+            key == WXK_NUMPAD_PAGEUP || key == WXK_NUMPAD_PAGEDOWN) {
+            state->buffer.clear();
+            event.Skip();
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - state->lastKey > std::chrono::seconds(1)) {
+            state->buffer.clear();
+        }
+        state->lastKey = now;
+
+        if (key == WXK_BACK) {
+            if (!state->buffer.empty()) {
+                state->buffer.RemoveLast();
+                selectPrefix(state->buffer);
+            }
+            return;
+        }
+
+        const wxChar ch = event.GetUnicodeKey();
+        if (ch == WXK_NONE || ch < WXK_SPACE) {
+            event.Skip();
+            return;
+        }
+
+        const wxString next = state->buffer + ch;
+        if (selectPrefix(next)) {
+            state->buffer = next;
+        }
+    });
+
+    choice->Bind(wxEVT_KILL_FOCUS, [state](wxFocusEvent& event) {
+        state->buffer.clear();
+        event.Skip();
+    });
+    choice->Bind(wxEVT_CHOICE, [state](wxCommandEvent& event) {
+        if (!state->ignoringChoice) {
+            state->buffer.clear();
+        }
+        event.Skip();
+    });
 }
 
 }  // namespace
@@ -100,9 +189,9 @@ GameDialog::GameDialog(wxWindow* parent, AppContext& ctx,
     // Date
     grid->Add(new wxStaticText(this, wxID_ANY, "Date:"), 0,
               wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
-    dateCtrl_ = new wxDatePickerCtrl(this, wxID_ANY);
+    dateCtrl_ = new ThemedDatePickerCtrl(this, wxID_ANY);
     if (existing_.has_value()) {
-        dateCtrl_->SetValue(wxDateFromString(existing_->playedOn));
+        dateCtrl_->SetDate(wxDateFromString(existing_->playedOn));
     }
     grid->Add(dateCtrl_, 1, wxEXPAND);
 
@@ -294,6 +383,9 @@ GameDialog::GameDialog(wxWindow* parent, AppContext& ctx,
     if (btns) root->Add(btns, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
     Bind(wxEVT_BUTTON, &GameDialog::onOk, this, wxID_OK);
 
+    installChoicePrefixSearch(deckChoice_, [this]() { rebuildVariantChoice(); });
+    installChoicePrefixSearch(opponentChoice_, nullptr);
+
     SetSizer(root);
     CentreOnParent();
 
@@ -326,7 +418,7 @@ void GameDialog::rebuildVariantChoice() {
 
 void GameDialog::onOk(wxCommandEvent&) {
     // Date
-    const wxDateTime dt = dateCtrl_->GetValue();
+    const wxDateTime dt = dateCtrl_->GetDate();
     const std::string playedOn =
         dateToWxString(dt).ToStdString(wxConvUTF8);
 

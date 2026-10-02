@@ -14,12 +14,12 @@
 #include <wx/dialog.h>
 
 class wxChoice;
-class wxDatePickerCtrl;
 class wxTextCtrl;
 
 namespace tracker::ui {
 
 struct AppContext;
+class ThemedDatePickerCtrl;
 
 class GameDialog : public wxDialog {
 public:
@@ -52,7 +52,7 @@ private:
     // Variants grouped per deck name index.
     std::vector<std::vector<const Deck*>> variantsByName_;
 
-    wxDatePickerCtrl* dateCtrl_{nullptr};
+    ThemedDatePickerCtrl* dateCtrl_{nullptr};
     wxChoice*         deckChoice_{nullptr};
     wxChoice*         variantChoice_{nullptr};
     wxTextCtrl*       opponentCtrl_{nullptr};
