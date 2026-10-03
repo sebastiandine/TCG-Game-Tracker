@@ -12,9 +12,14 @@
 
 #include <wx/button.h>
 #include <wx/choice.h>
+#include <wx/combobox.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
+
+#ifdef __WXMSW__
+#include <wx/msw/wrapwin.h>
+#endif
 
 namespace tracker::ui {
 
@@ -47,8 +52,45 @@ std::vector<ResultScoreEntry> buildResultScoreEntries() {
     return entries;
 }
 
-void installChoicePrefixSearch(wxChoice* choice, std::function<void()> onChanged) {
-    if (choice == nullptr) return;
+wxString foldAsciiForTypeahead(wxString s) {
+    s.MakeLower();
+    s.Replace(wxString::FromUTF8("\xc3\xa9"), wxT("e"));  // é
+    s.Replace(wxString::FromUTF8("\xc3\x89"), wxT("e"));  // É (after lower: é)
+    s.Replace(wxString::FromUTF8("\xc3\xa8"), wxT("e"));  // è
+    s.Replace(wxString::FromUTF8("\xc3\xaa"), wxT("e"));  // ê
+    s.Replace(wxString::FromUTF8("\xc3\xa0"), wxT("a"));  // à
+    s.Replace(wxString::FromUTF8("\xc3\xa1"), wxT("a"));  // á
+    s.Replace(wxString::FromUTF8("\xc3\xb1"), wxT("n"));  // ñ
+    s.Replace(wxString::FromUTF8("\xc3\xbc"), wxT("u"));  // ü
+    s.Replace(wxString::FromUTF8("\xc3\xb6"), wxT("o"));  // ö
+    return s;
+}
+
+bool comboTypingSurfaceActive(wxComboBox* combo) {
+    if (combo == nullptr) return false;
+
+    auto enclosedBy = [](wxWindow* root, wxWindow* leaf) -> bool {
+        if (root == nullptr || leaf == nullptr) return false;
+        for (wxWindow* w = leaf; w != nullptr; w = w->GetParent()) {
+            if (w == root) return true;
+        }
+        return false;
+    };
+
+    if (enclosedBy(combo, wxWindow::FindFocus())) return true;
+
+#ifdef __WXMSW__
+    static constexpr UINT kCbGetDroppedState = 0x0157;  // CB_GETDROPPEDSTATE
+    WXHWND wxh = combo->GetHandle();
+    const HWND h = reinterpret_cast<HWND>(wxh);
+    return h != nullptr && ::SendMessageW(h, kCbGetDroppedState, 0, 0) != 0;
+#else
+    return false;
+#endif
+}
+
+void installComboTypeahead(wxComboBox* combo, std::function<void()> onChanged) {
+    if (combo == nullptr) return;
 
     struct State {
         wxString buffer;
@@ -56,78 +98,99 @@ void installChoicePrefixSearch(wxChoice* choice, std::function<void()> onChanged
         bool ignoringChoice{false};
     };
     auto state = std::make_shared<State>();
+    static constexpr auto kTypeaheadResetMs = std::chrono::milliseconds(1000);
 
-    auto selectPrefix = [choice, state, onChanged](const wxString& prefix) {
-        if (prefix.empty()) return true;
-        const wxString needle = prefix.Lower();
-        const unsigned count = choice->GetCount();
+    auto applySelection = [combo, state, onChanged]() {
+        if (combo->GetCount() == 0) return;
+        const wxString pref = foldAsciiForTypeahead(state->buffer);
+        if (pref.empty()) return;
+
+        auto selectIndex = [&](int i) {
+            if (combo->GetSelection() != i) {
+                state->ignoringChoice = true;
+                combo->SetSelection(i);
+                state->ignoringChoice = false;
+                if (onChanged) onChanged();
+            }
+        };
+
+        const unsigned count = combo->GetCount();
         for (unsigned i = 0; i < count; ++i) {
-            if (choice->GetString(i).Lower().StartsWith(needle)) {
-                if (choice->GetSelection() != static_cast<int>(i)) {
-                    state->ignoringChoice = true;
-                    choice->SetSelection(static_cast<int>(i));
-                    state->ignoringChoice = false;
-                    if (onChanged) onChanged();
-                }
-                return true;
+            if (foldAsciiForTypeahead(combo->GetString(i)).StartsWith(pref)) {
+                selectIndex(static_cast<int>(i));
+                return;
             }
         }
-        return false;
+        for (unsigned i = 0; i < count; ++i) {
+            if (foldAsciiForTypeahead(combo->GetString(i)).Contains(pref)) {
+                selectIndex(static_cast<int>(i));
+                return;
+            }
+        }
     };
 
-    choice->Bind(wxEVT_CHAR_HOOK, [state, selectPrefix](wxKeyEvent& event) {
-        if (event.ControlDown() || event.AltDown() || event.MetaDown()) {
-            event.Skip();
+    combo->Bind(wxEVT_CHAR, [combo, state, applySelection](wxKeyEvent& ev) {
+        if (!combo->IsEnabled() || combo->GetCount() == 0) {
+            ev.Skip();
             return;
         }
 
-        const int key = event.GetKeyCode();
-        if (key == WXK_TAB || key == WXK_RETURN || key == WXK_NUMPAD_ENTER ||
-            key == WXK_ESCAPE) {
-            event.Skip();
-            return;
-        }
-        if (key == WXK_UP || key == WXK_DOWN || key == WXK_LEFT || key == WXK_RIGHT ||
-            key == WXK_HOME || key == WXK_END || key == WXK_PAGEUP || key == WXK_PAGEDOWN ||
-            key == WXK_NUMPAD_UP || key == WXK_NUMPAD_DOWN ||
-            key == WXK_NUMPAD_HOME || key == WXK_NUMPAD_END ||
-            key == WXK_NUMPAD_PAGEUP || key == WXK_NUMPAD_PAGEDOWN) {
-            state->buffer.clear();
-            event.Skip();
+        const int mods = ev.GetModifiers();
+        if ((mods & (wxMOD_CONTROL | wxMOD_ALT | wxMOD_META)) != 0) {
+            ev.Skip();
             return;
         }
 
         const auto now = std::chrono::steady_clock::now();
-        if (now - state->lastKey > std::chrono::seconds(1)) {
+        if (!state->buffer.empty() && now - state->lastKey > kTypeaheadResetMs) {
             state->buffer.clear();
         }
         state->lastKey = now;
 
-        if (key == WXK_BACK) {
-            if (!state->buffer.empty()) {
+        const int code = ev.GetKeyCode();
+
+        if (code == WXK_BACK) {
+            if (!state->buffer.empty())
                 state->buffer.RemoveLast();
-                selectPrefix(state->buffer);
-            }
+            applySelection();
+            ev.Skip(false);
             return;
         }
 
-        const wxChar ch = event.GetUnicodeKey();
-        if (ch == WXK_NONE || ch < WXK_SPACE) {
-            event.Skip();
+        if (code == WXK_TAB || code == WXK_RETURN || code == WXK_ESCAPE ||
+            code == WXK_UP || code == WXK_DOWN || code == WXK_LEFT || code == WXK_RIGHT ||
+            code == WXK_HOME || code == WXK_END || code == WXK_PAGEUP || code == WXK_PAGEDOWN ||
+            code == WXK_NUMPAD_ENTER || code == WXK_INSERT || code == WXK_DELETE ||
+            code == WXK_F4 || (code >= WXK_F1 && code <= WXK_F24)) {
+            ev.Skip();
             return;
         }
 
-        const wxString next = state->buffer + ch;
-        if (selectPrefix(next)) {
-            state->buffer = next;
+        wxChar uc = static_cast<wxChar>(ev.GetUnicodeKey());
+        if (uc == WXK_NONE && code == WXK_SPACE)
+            uc = wxT(' ');
+        if (uc == WXK_NONE && code >= 32 && code < 127)
+            uc = static_cast<wxChar>(code);
+
+        if (uc == WXK_NONE || static_cast<unsigned>(uc) < 32u) {
+            ev.Skip();
+            return;
         }
+
+        wxString chunk(uc);
+        chunk.MakeLower();
+        state->buffer += chunk;
+        applySelection();
+        ev.Skip(false);
     });
 
-    choice->Bind(wxEVT_KILL_FOCUS, [state](wxFocusEvent& event) {
-        state->buffer.clear();
+    combo->Bind(wxEVT_KILL_FOCUS, [combo, state](wxFocusEvent& event) {
+        if (!comboTypingSurfaceActive(combo)) {
+            state->buffer.clear();
+        }
         event.Skip();
     });
-    choice->Bind(wxEVT_CHOICE, [state](wxCommandEvent& event) {
+    combo->Bind(wxEVT_COMBOBOX, [state](wxCommandEvent& event) {
         if (!state->ignoringChoice) {
             state->buffer.clear();
         }
@@ -198,7 +261,8 @@ GameDialog::GameDialog(wxWindow* parent, AppContext& ctx,
     // Deck (unique names)
     grid->Add(new wxStaticText(this, wxID_ANY, "Deck:"), 0,
               wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
-    deckChoice_ = new wxChoice(this, wxID_ANY);
+    deckChoice_ = new wxComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                                 wxDefaultSize, 0, nullptr, wxCB_READONLY);
     {
         wxArrayString items;
         for (const auto& name : deckNames_) {
@@ -239,7 +303,7 @@ GameDialog::GameDialog(wxWindow* parent, AppContext& ctx,
     variantChoice_ = new wxChoice(this, wxID_ANY);
     grid->Add(variantChoice_, 1, wxEXPAND);
 
-    deckChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
+    deckChoice_->Bind(wxEVT_COMBOBOX, [this](wxCommandEvent&) {
         rebuildVariantChoice();
     });
     rebuildVariantChoice();
@@ -271,7 +335,8 @@ GameDialog::GameDialog(wxWindow* parent, AppContext& ctx,
     // Opponent deck (unique names only)
     grid->Add(new wxStaticText(this, wxID_ANY, "Opponent Deck:"), 0,
               wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
-    opponentChoice_ = new wxChoice(this, wxID_ANY);
+    opponentChoice_ = new wxComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                                     wxDefaultSize, 0, nullptr, wxCB_READONLY);
     {
         wxArrayString items;
         for (const auto& name : deckNames_) {
@@ -383,8 +448,8 @@ GameDialog::GameDialog(wxWindow* parent, AppContext& ctx,
     if (btns) root->Add(btns, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
     Bind(wxEVT_BUTTON, &GameDialog::onOk, this, wxID_OK);
 
-    installChoicePrefixSearch(deckChoice_, [this]() { rebuildVariantChoice(); });
-    installChoicePrefixSearch(opponentChoice_, nullptr);
+    installComboTypeahead(deckChoice_, [this]() { rebuildVariantChoice(); });
+    installComboTypeahead(opponentChoice_, nullptr);
 
     SetSizer(root);
     CentreOnParent();

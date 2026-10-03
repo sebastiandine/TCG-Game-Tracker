@@ -4,6 +4,7 @@
 #include <wx/bmpbuttn.h>
 #include <wx/tglbtn.h>
 #include <wx/choice.h>
+#include <wx/combobox.h>
 #include <wx/dcbuffer.h>
 #include <wx/frame.h>
 #include <wx/dialog.h>
@@ -1006,6 +1007,7 @@ void applyThemeToWindowTree(wxWindow* root, const ThemePalette& palette, Theme t
                dynamic_cast<wxListCtrl*>(root) != nullptr ||
                dynamic_cast<wxListBox*>(root) != nullptr ||
                dynamic_cast<wxChoice*>(root) != nullptr ||
+               dynamic_cast<wxComboBox*>(root) != nullptr ||
                dynamic_cast<wxComboCtrl*>(root) != nullptr ||
                dynamic_cast<wxSpinCtrl*>(root) != nullptr ||
                dynamic_cast<wxTreeCtrl*>(root) != nullptr ||
