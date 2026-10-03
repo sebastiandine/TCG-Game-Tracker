@@ -14,6 +14,7 @@
 #include <wx/dialog.h>
 
 class wxChoice;
+class wxComboBox;
 class wxTextCtrl;
 
 namespace tracker::ui {
@@ -53,10 +54,10 @@ private:
     std::vector<std::vector<const Deck*>> variantsByName_;
 
     ThemedDatePickerCtrl* dateCtrl_{nullptr};
-    wxChoice*         deckChoice_{nullptr};
+    wxComboBox*       deckChoice_{nullptr};
     wxChoice*         variantChoice_{nullptr};
     wxTextCtrl*       opponentCtrl_{nullptr};
-    wxChoice*         opponentChoice_{nullptr};
+    wxComboBox*       opponentChoice_{nullptr};
     wxChoice*         resultScoreChoice_{nullptr};
     wxChoice*         gameTypeChoice_{nullptr};
     wxTextCtrl*       notesCtrl_{nullptr};
