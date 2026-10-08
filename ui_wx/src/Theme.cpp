@@ -197,6 +197,12 @@ void applyGenericCalendarTheme(wxGenericCalendarCtrl* cal, const ThemePalette& p
     cal->Refresh();
 }
 
+wxDateTime parseIsoDate(const wxString& value) {
+    wxDateTime dt;
+    if (dt.ParseISODate(value) && dt.IsValid()) return dt;
+    return wxDefaultDateTime;
+}
+
 class GenericCalendarPopup : public wxComboPopup {
 public:
     bool Create(wxWindow* parent) override {
@@ -206,7 +212,7 @@ public:
 
         cal_->Bind(wxEVT_CALENDAR_SEL_CHANGED, [this](wxCalendarEvent& ev) {
             if (m_combo != nullptr && cal_ != nullptr) {
-                m_combo->SetText(cal_->GetDate().FormatDate());
+                m_combo->SetText(cal_->GetDate().FormatISODate());
             }
             ev.Skip();
         });
@@ -230,15 +236,15 @@ public:
 
     void SetStringValue(const wxString& value) override {
         if (cal_ == nullptr) return;
-        wxDateTime dt;
-        if (dt.ParseDate(value) && dt.IsValid()) {
+        const wxDateTime dt = parseIsoDate(value);
+        if (dt.IsValid()) {
             cal_->SetDate(dt);
         }
     }
 
     wxString GetStringValue() const override {
         if (cal_ == nullptr || !cal_->GetDate().IsValid()) return {};
-        return cal_->GetDate().FormatDate();
+        return cal_->GetDate().FormatISODate();
     }
 
     wxSize GetAdjustedSize(int minWidth, int /*prefHeight*/, int /*maxHeight*/) override {
@@ -293,16 +299,16 @@ void ThemedDatePickerCtrl::SetDate(const wxDateTime& date) {
     if (auto* cal = calendarFromCombo(this)) {
         cal->SetDate(value);
     }
-    SetText(value.FormatDate());
+    SetText(value.FormatISODate());
 }
 
 wxDateTime ThemedDatePickerCtrl::GetDate() const {
+    const wxDateTime parsed = parseIsoDate(GetValue());
+    if (parsed.IsValid()) return parsed;
     if (auto* cal = calendarFromCombo(const_cast<ThemedDatePickerCtrl*>(this))) {
         const wxDateTime calDate = cal->GetDate();
         if (calDate.IsValid()) return calDate;
     }
-    wxDateTime parsed;
-    if (parsed.ParseDate(GetValue()) && parsed.IsValid()) return parsed;
     return wxDateTime::Today();
 }
 
