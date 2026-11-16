@@ -3,7 +3,9 @@
 #include "tracker/infra/SqliteDatabase.hpp"
 #include "tracker/infra/SqliteDeckRepository.hpp"
 #include "tracker/infra/SqliteFormatRepository.hpp"
+#include "tracker/infra/SqliteGameRepository.hpp"
 #include "tracker/infra/SqliteGameTitleRepository.hpp"
+#include "tracker/infra/SqliteGameTypeRepository.hpp"
 
 using namespace tracker;
 
@@ -246,5 +248,177 @@ TEST_SUITE("SqliteDeckRepository") {
         auto result = repo.update(9999, 1, "Fake", "", "");
         CHECK(result.isErr());
         CHECK(result.error().find("not found") != std::string::npos);
+    }
+
+    TEST_CASE("renameFamily updates every row and preserves variants") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+        const auto gameId = seedGame(db);
+        seedDefaultArchetypes(db, gameId);
+        SqliteFormatRepository formats(db);
+        SqliteDeckRepository repo(db);
+
+        auto fmt = formats.create(gameId, "Legacy");
+        REQUIRE(fmt.isOk());
+        auto main = repo.create(fmt.value().id, 1, "Landstill", "", "core");
+        auto glaciers = repo.create(fmt.value().id, 3, "Landstill", "Glaciers",
+                                    "ice");
+        auto other = repo.create(fmt.value().id, 2, "Shops", "", "");
+        REQUIRE(main.isOk());
+        REQUIRE(glaciers.isOk());
+        REQUIRE(other.isOk());
+
+        auto renamed = repo.renameFamily(fmt.value().id, "landstill",
+                                         "Standstill");
+        REQUIRE(renamed.isOk());
+
+        auto list = repo.listByFormat(fmt.value().id);
+        REQUIRE(list.isOk());
+        REQUIRE(list.value().size() == 3);
+        for (const auto& deck : list.value()) {
+            if (deck.id == other.value().id) {
+                CHECK(deck.name == "Shops");
+            } else if (deck.id == main.value().id) {
+                CHECK(deck.name == "Standstill");
+                CHECK(deck.variant.empty());
+                CHECK(deck.variantNote == "core");
+                CHECK(deck.archetypeId == 1);
+            } else {
+                CHECK(deck.name == "Standstill");
+                CHECK(deck.variant == "Glaciers");
+                CHECK(deck.variantNote == "ice");
+            }
+        }
+    }
+
+    TEST_CASE("renameFamily collision changes nothing") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+        const auto gameId = seedGame(db);
+        seedDefaultArchetypes(db, gameId);
+        SqliteFormatRepository formats(db);
+        SqliteDeckRepository repo(db);
+
+        auto fmt = formats.create(gameId, "Legacy");
+        REQUIRE(fmt.isOk());
+        REQUIRE(repo.create(fmt.value().id, 1, "Landstill", "", "").isOk());
+        REQUIRE(repo.create(fmt.value().id, 1, "Landstill", "Glaciers", "")
+                    .isOk());
+        REQUIRE(repo.create(fmt.value().id, 2, "Standstill", "", "").isOk());
+
+        auto renamed = repo.renameFamily(fmt.value().id, "Landstill",
+                                         "Standstill");
+        CHECK(renamed.isErr());
+        CHECK(renamed.error().find("already exists") != std::string::npos);
+
+        auto list = repo.listByFormat(fmt.value().id);
+        REQUIRE(list.isOk());
+        int landstill = 0;
+        int standstill = 0;
+        for (const auto& deck : list.value()) {
+            if (deck.name == "Landstill") {
+                ++landstill;
+                CHECK((deck.variant.empty() || deck.variant == "Glaciers"));
+            }
+            if (deck.name == "Standstill") ++standstill;
+        }
+        CHECK(landstill == 2);
+        CHECK(standstill == 1);
+    }
+
+    TEST_CASE("update of one variant leaves sibling rows unchanged") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+        const auto gameId = seedGame(db);
+        seedDefaultArchetypes(db, gameId);
+        SqliteFormatRepository formats(db);
+        SqliteDeckRepository repo(db);
+
+        auto fmt = formats.create(gameId, "Legacy");
+        REQUIRE(fmt.isOk());
+        auto main = repo.create(fmt.value().id, 1, "Landstill", "", "");
+        auto glaciers = repo.create(fmt.value().id, 1, "Landstill", "Glaciers",
+                                    "");
+        REQUIRE(main.isOk());
+        REQUIRE(glaciers.isOk());
+
+        auto updated = repo.update(glaciers.value().id, 1, "Landstill",
+                                   "Beasts", "");
+        REQUIRE(updated.isOk());
+        CHECK(updated.value().variant == "Beasts");
+
+        auto listedMain = repo.findById(main.value().id);
+        REQUIRE(listedMain.isOk());
+        CHECK(listedMain.value().name == "Landstill");
+        CHECK(listedMain.value().variant.empty());
+    }
+
+    TEST_CASE("remove deletes games that reference the deck and leaves others") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+        const auto gameId = seedGame(db);
+        seedDefaultArchetypes(db, gameId);
+        SqliteGameTypeRepository types(db);
+        REQUIRE(types.create(gameId, "League", Competitiveness::NonCompetitive,
+                             PlayMedium::Online)
+                    .isOk());
+        SqliteFormatRepository formats(db);
+        SqliteDeckRepository decks(db);
+        SqliteGameRepository games(db);
+
+        auto fmt = formats.create(gameId, "Legacy");
+        REQUIRE(fmt.isOk());
+        auto main = decks.create(fmt.value().id, 1, "Landstill", "", "");
+        auto glaciers = decks.create(fmt.value().id, 1, "Landstill",
+                                     "Glaciers", "");
+        auto shops = decks.create(fmt.value().id, 2, "Shops", "", "");
+        REQUIRE(main.isOk());
+        REQUIRE(glaciers.isOk());
+        REQUIRE(shops.isOk());
+
+        REQUIRE(games.create(fmt.value().id, "2026-01-01", glaciers.value().id,
+                             shops.value().id, "", MatchResult::Win,
+                             MatchScore::TwoOne, 1, "")
+                    .isOk());
+        REQUIRE(games.create(fmt.value().id, "2026-01-02", shops.value().id,
+                             glaciers.value().id, "", MatchResult::Loss,
+                             MatchScore::OneTwo, 1, "")
+                    .isOk());
+        REQUIRE(games.create(fmt.value().id, "2026-01-03", main.value().id,
+                             shops.value().id, "", MatchResult::Win,
+                             MatchScore::TwoZero, 1, "")
+                    .isOk());
+        REQUIRE(games.create(fmt.value().id, "2026-01-04", shops.value().id,
+                             shops.value().id, "", MatchResult::Draw,
+                             MatchScore::OneOne, 1, "")
+                    .isOk());
+
+        auto removed = decks.remove(glaciers.value().id);
+        REQUIRE(removed.isOk());
+        CHECK(removed.value() == 2);
+        CHECK(decks.findById(glaciers.value().id).isErr());
+        CHECK(decks.findById(main.value().id).isOk());
+
+        auto remaining = games.listByFormat(fmt.value().id);
+        REQUIRE(remaining.isOk());
+        REQUIRE(remaining.value().size() == 2);
+        for (const auto& game : remaining.value()) {
+            CHECK(game.deckId != glaciers.value().id);
+            CHECK(game.opponentDeckId != glaciers.value().id);
+        }
+
+        auto blocked = decks.remove(9999);
+        CHECK(blocked.isErr());
+        CHECK(games.listByFormat(fmt.value().id).value().size() == 2);
+
+        auto mainRemoved = decks.remove(main.value().id);
+        REQUIRE(mainRemoved.isOk());
+        CHECK(mainRemoved.value() == 1);
+        CHECK(decks.findById(main.value().id).isErr());
+        auto left = games.listByFormat(fmt.value().id);
+        REQUIRE(left.isOk());
+        REQUIRE(left.value().size() == 1);
+        CHECK(left.value()[0].deckId == shops.value().id);
+        CHECK(left.value()[0].opponentDeckId == shops.value().id);
     }
 }

@@ -1,6 +1,8 @@
 #include "tracker/ui/DecksPanel.hpp"
 #include "tracker/ui/AppContext.hpp"
+#include "tracker/ui/DeckDelete.hpp"
 #include "tracker/ui/EditDeckDialog.hpp"
+#include "tracker/ui/RenameDeckDialog.hpp"
 #include "tracker/ui/Theme.hpp"
 #include "tracker/domain/DeckGroup.hpp"
 
@@ -11,6 +13,7 @@
 #include <wx/button.h>
 #include <wx/choice.h>
 #include <wx/gbsizer.h>
+#include <wx/menu.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
@@ -27,6 +30,15 @@ public:
     [[nodiscard]] const Deck& deck() const noexcept { return deck_; }
 private:
     Deck deck_;
+};
+
+// Stores the shared deck name on a group header ("Name (N)").
+class DeckGroupItemData : public wxTreeItemData {
+public:
+    explicit DeckGroupItemData(std::string name) : name_(std::move(name)) {}
+    [[nodiscard]] const std::string& name() const noexcept { return name_; }
+private:
+    std::string name_;
 };
 
 wxString deckItemLabel(const Deck& deck) {
@@ -171,6 +183,40 @@ void DecksPanel::buildTree(wxSizer* parent) {
 
         onEdit(data->deck());
     });
+
+    tree_->Bind(wxEVT_TREE_ITEM_RIGHT_CLICK, [this](wxTreeEvent& evt) {
+        const auto item = evt.GetItem();
+        if (!item.IsOk()) return;
+        tree_->SelectItem(item);
+
+        wxMenu menu;
+        if (auto* data =
+                dynamic_cast<DeckTreeItemData*>(tree_->GetItemData(item))) {
+            const Deck deck = data->deck();
+            menu.Append(wxID_EDIT, "Edit");
+            const int deleteId = wxWindow::NewControlId();
+            menu.Append(deleteId, deck.variant.empty() ? "Delete deck"
+                                                       : "Delete variante");
+            menu.Bind(wxEVT_MENU, [this, deck](wxCommandEvent&) {
+                onEdit(deck);
+            }, wxID_EDIT);
+            menu.Bind(wxEVT_MENU, [this, deck](wxCommandEvent&) {
+                onDelete(deck);
+            }, deleteId);
+            tree_->PopupMenu(&menu, evt.GetPoint());
+            return;
+        }
+
+        if (auto* group = dynamic_cast<DeckGroupItemData*>(
+                tree_->GetItemData(item))) {
+            const std::string name = group->name();
+            menu.Append(wxID_EDIT, "Rename deck");
+            menu.Bind(wxEVT_MENU, [this, name](wxCommandEvent&) {
+                onRenameGroup(name);
+            }, wxID_EDIT);
+            tree_->PopupMenu(&menu, evt.GetPoint());
+        }
+    });
 }
 
 void DecksPanel::onAdd() {
@@ -221,6 +267,16 @@ void DecksPanel::onEdit(const Deck& deck) {
     if (dlg.ShowModal() == wxID_OK) {
         refreshTree();
     }
+}
+
+void DecksPanel::onDelete(const Deck& deck) {
+    if (confirmAndDeleteDeckRow(this, ctx_, deck)) refreshTree();
+}
+
+void DecksPanel::onRenameGroup(const std::string& name) {
+    RenameDeckDialog dlg(this, ctx_.decks, formatId_, name);
+    themeModalDialog(&dlg, ctx_.config.current().theme);
+    if (dlg.ShowModal() == wxID_OK) refreshTree();
 }
 
 void DecksPanel::fillArchetypeChoice() {
@@ -279,7 +335,8 @@ void DecksPanel::refreshTree() {
     for (const auto& group : groups) {
         const bool hasSubdecks = group.variants.size() > 1;
         const wxTreeItemId parentItem =
-            hasSubdecks ? tree_->AppendItem(root, groupHeaderLabel(group))
+            hasSubdecks ? tree_->AppendItem(root, groupHeaderLabel(group), -1,
+                                            -1, new DeckGroupItemData(group.name))
                         : root;
 
         for (const auto& deck : group.variants) {

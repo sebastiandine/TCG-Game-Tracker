@@ -3,12 +3,14 @@
 // DecksPanel: inline form for creating decks and a grouped tree list of
 // existing decks, scoped to the currently selected format. Names with
 // variants are collapsible groups labeled "Name (N)" (N includes the
-// main deck); names with a single record are leaves.
+// main deck); names with a single record are leaves. Right-click a row
+// to edit, rename the shared deck name, or delete a variante or deck.
 
 #include "tracker/domain/Deck.hpp"
 #include "tracker/domain/DeckArchetype.hpp"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <wx/panel.h>
@@ -37,6 +39,8 @@ private:
     void buildTree(wxSizer* parent);
     void onAdd();
     void onEdit(const Deck& deck);
+    void onDelete(const Deck& deck);
+    void onRenameGroup(const std::string& name);
     void refreshTree();
     void fillArchetypeChoice();
 

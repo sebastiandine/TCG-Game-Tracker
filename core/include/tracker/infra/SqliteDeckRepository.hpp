@@ -29,6 +29,15 @@ public:
                                       const std::string& variant,
                                       const std::string& variantNote) override;
 
+    [[nodiscard]] Result<Deck> findById(std::int64_t deckId) override;
+
+    [[nodiscard]] Result<void> renameFamily(
+        std::int64_t formatId,
+        const std::string& fromName,
+        const std::string& toName) override;
+
+    [[nodiscard]] Result<int> remove(std::int64_t deckId) override;
+
     [[nodiscard]] Result<std::vector<Deck>> listByFormat(
         std::int64_t formatId) override;
 
