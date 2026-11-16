@@ -136,6 +136,7 @@ CREATE TABLE Decks (
 - `UNIQUE (format_id, name, variant)` prevents duplicate deck+variant combinations within a format (case-insensitive via `COLLATE NOCASE` on both `name` and `variant`).
 - An empty `variant` is allowed and represents the "base" version of a deck.
 - Foreign key enforcement is enabled via `PRAGMA foreign_keys = ON` on every database open.
+- Deleting a deck does not use `ON DELETE CASCADE`. The application first deletes every game whose `deck_id` or `opponent_deck_id` is that row, then deletes the deck row.
 
 ## Games
 

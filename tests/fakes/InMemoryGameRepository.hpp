@@ -76,6 +76,19 @@ public:
         return Result<std::vector<Game>>::ok(std::move(result));
     }
 
+    // Remove games that use `deckId` as the player deck or the opponent deck.
+    // Returns how many games were removed.
+    int eraseReferencing(std::int64_t deckId) {
+        const auto before = games_.size();
+        games_.erase(std::remove_if(games_.begin(), games_.end(),
+                                    [deckId](const Game& game) {
+                                        return game.deckId == deckId ||
+                                               game.opponentDeckId == deckId;
+                                    }),
+                     games_.end());
+        return static_cast<int>(before - games_.size());
+    }
+
 private:
     std::int64_t nextId_{1};
     std::vector<Game> games_;

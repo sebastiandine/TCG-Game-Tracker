@@ -1,5 +1,6 @@
 #include "tracker/ui/EditDeckDialog.hpp"
 #include "tracker/ui/AppContext.hpp"
+#include "tracker/ui/DeckDelete.hpp"
 #include "tracker/ui/Theme.hpp"
 
 #include <wx/button.h>
@@ -69,9 +70,17 @@ EditDeckDialog::EditDeckDialog(wxWindow* parent, AppContext& ctx,
 
     root->Add(grid, 1, wxEXPAND | wxALL, 12);
 
+    auto* buttonRow = new wxBoxSizer(wxHORIZONTAL);
+    auto* deleteButton = new wxButton(
+        this, wxID_ANY,
+        deck.variant.empty() ? "Delete deck" : "Delete variante");
+    buttonRow->Add(deleteButton, 0, wxALIGN_CENTER_VERTICAL);
+    buttonRow->AddStretchSpacer();
     auto* btns = CreateButtonSizer(wxOK | wxCANCEL);
-    if (btns) root->Add(btns, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    if (btns) buttonRow->Add(btns, 0, wxEXPAND);
+    root->Add(buttonRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
     Bind(wxEVT_BUTTON, &EditDeckDialog::onOk, this, wxID_OK);
+    deleteButton->Bind(wxEVT_BUTTON, &EditDeckDialog::onDelete, this);
 
     SetSizer(root);
     nameCtrl_->SetFocus();
@@ -105,6 +114,11 @@ void EditDeckDialog::onOk(wxCommandEvent&) {
     }
 
     updated_ = std::move(result.value());
+    EndModal(wxID_OK);
+}
+
+void EditDeckDialog::onDelete(wxCommandEvent&) {
+    if (!confirmAndDeleteDeckRow(this, ctx_, original_)) return;
     EndModal(wxID_OK);
 }
 

@@ -43,6 +43,22 @@ public:
                                               const std::string& variant,
                                               const std::string& variantNote) = 0;
 
+    // Return the deck with this id, or an error if it does not exist.
+    [[nodiscard]] virtual Result<Deck> findById(std::int64_t deckId) = 0;
+
+    // Set `toName` on every deck in `formatId` whose name matches `fromName`
+    // (case-insensitive). Variant labels are left unchanged. Fails, changing
+    // nothing, when the new name would duplicate an existing deck+variant.
+    [[nodiscard]] virtual Result<void> renameFamily(
+        std::int64_t formatId,
+        const std::string& fromName,
+        const std::string& toName) = 0;
+
+    // Delete games that reference `deckId` (as the player deck or the
+    // opponent deck), then delete the deck, in one transaction. Returns how
+    // many games were removed.
+    [[nodiscard]] virtual Result<int> remove(std::int64_t deckId) = 0;
+
     // Return all decks belonging to the given format, ordered by name then
     // variant ascending.
     [[nodiscard]] virtual Result<std::vector<Deck>> listByFormat(

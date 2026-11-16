@@ -21,7 +21,7 @@
 - `sqlite_schema_migration_tests.cpp` — legacy Formats/GameTypes/DeckArchetypes (no `game_id`) attach to Magic: The Gathering with stable ids.
 - `format_service_tests.cpp` — `FormatService` against `InMemoryFormatRepository`.
 - `game_type_service_tests.cpp` — `GameTypeService` against `InMemoryGameTypeRepository`.
-- `deck_service_tests.cpp` — `DeckService` against `InMemoryDeckRepository`.
+- `deck_service_tests.cpp` — `DeckService` against `InMemoryDeckRepository` (create/update, family rename, variante and main-deck delete with related games).
 - `game_service_tests.cpp` — `GameService` against `InMemoryGameRepository` (create/update/list, `clearNotes`).
 - `game_import_parse_tests.cpp` — CSV/XLSX parsers and header mapping for game import.
 - `game_import_service_tests.cpp` — `GameImportService` against in-memory deck/game-type/game fakes and a scripted `IGameImportSink`.

@@ -4,6 +4,8 @@
 
 #include "tracker/ports/IDeckRepository.hpp"
 
+#include "InMemoryGameRepository.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <vector>
@@ -109,6 +111,61 @@ public:
         return Result<Deck>::ok(*target);
     }
 
+    Result<Deck> findById(std::int64_t deckId) override {
+        for (const auto& deck : decks_) {
+            if (deck.id == deckId) return Result<Deck>::ok(deck);
+        }
+        return Result<Deck>::err("Deck not found.");
+    }
+
+    Result<void> renameFamily(std::int64_t formatId,
+                              const std::string& fromName,
+                              const std::string& toName) override {
+        std::vector<Deck*> family;
+        for (auto& deck : decks_) {
+            if (deck.formatId == formatId &&
+                equalsIgnoreCase(deck.name, fromName)) {
+                family.push_back(&deck);
+            }
+        }
+
+        for (const auto* member : family) {
+            for (const auto& other : decks_) {
+                const bool outsideFamily =
+                    other.formatId == formatId &&
+                    !equalsIgnoreCase(other.name, fromName);
+                if (outsideFamily &&
+                    equalsIgnoreCase(other.name, toName) &&
+                    equalsIgnoreCase(other.variant, member->variant)) {
+                    return Result<void>::err(
+                        "A deck named \"" + toName + "\" with variant \"" +
+                        member->variant +
+                        "\" already exists in this format.");
+                }
+            }
+        }
+
+        for (auto* member : family) member->name = toName;
+        return Result<void>::ok();
+    }
+
+    Result<int> remove(std::int64_t deckId) override {
+        const auto it = std::find_if(
+            decks_.begin(), decks_.end(),
+            [deckId](const Deck& deck) { return deck.id == deckId; });
+        if (it == decks_.end()) {
+            return Result<int>::err("Deck not found.");
+        }
+
+        const int gamesRemoved =
+            games_ == nullptr ? 0 : games_->eraseReferencing(deckId);
+        decks_.erase(it);
+        return Result<int>::ok(gamesRemoved);
+    }
+
+    // When set, remove() also deletes games that reference the deck.
+    void bindGames(InMemoryGameRepository* games) { games_ = games; }
+
     Result<std::vector<Deck>> listByFormat(std::int64_t formatId) override {
         std::vector<Deck> result;
         for (const auto& d : decks_) {
@@ -141,6 +198,7 @@ private:
 
     std::int64_t nextId_{1};
     std::int64_t nextArchetypeId_{1};
+    InMemoryGameRepository* games_{nullptr};
     std::vector<DeckArchetype> archetypes_;
     std::vector<Deck> decks_;
 };

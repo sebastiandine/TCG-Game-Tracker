@@ -27,6 +27,7 @@ public:
 
 private:
     void onOk(wxCommandEvent&);
+    void onDelete(wxCommandEvent&);
 
     AppContext& ctx_;
     Deck original_;

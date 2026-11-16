@@ -11,7 +11,9 @@ add_library(tracker_ui_wx STATIC
     src/CreateArchetypeDialog.cpp
     src/FormatWorkspace.cpp
     src/DecksPanel.cpp
+    src/DeckDelete.cpp
     src/EditDeckDialog.cpp
+    src/RenameDeckDialog.cpp
     src/GamesPanel.cpp
     src/GameDialog.cpp
     src/StatisticsPanel.cpp
