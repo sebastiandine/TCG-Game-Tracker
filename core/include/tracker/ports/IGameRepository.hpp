@@ -24,9 +24,11 @@ public:
                                               MatchResult result,
                                               MatchScore score,
                                               std::int64_t gameTypeId,
-                                              const std::string& notes) = 0;
+                                              const std::string& notes,
+                                              std::int64_t rotationId = 0) = 0;
 
     // Update an existing game record. Returns the updated Game.
+    // Does not move the game between rotations.
     [[nodiscard]] virtual Result<Game> update(std::int64_t gameId,
                                               const std::string& playedOn,
                                               std::int64_t deckId,
@@ -37,10 +39,10 @@ public:
                                               std::int64_t gameTypeId,
                                               const std::string& notes) = 0;
 
-    // Return all games belonging to the given format, ordered by played_on
-    // descending, then id descending (newest first).
+    // Games in the format, newest first. `rotationId` 0 returns only
+    // non-rotating rows (rotation_id IS NULL).
     [[nodiscard]] virtual Result<std::vector<Game>> listByFormat(
-        std::int64_t formatId) = 0;
+        std::int64_t formatId, std::int64_t rotationId = 0) = 0;
 };
 
 }  // namespace tracker

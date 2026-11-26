@@ -42,7 +42,8 @@ public:
         std::int64_t formatId,
         std::int64_t gameId,
         const std::vector<GameImportRow>& rows,
-        IGameImportSink& sink);
+        IGameImportSink& sink,
+        std::int64_t rotationId = 0);
 
 private:
     Result<Deck> ensureCoreDeck(std::int64_t formatId,
@@ -77,6 +78,7 @@ private:
     std::unordered_map<std::string, GameType> gameTypeByName_;
     std::unordered_set<std::string>           declinedCores_;
     std::unordered_set<std::string>           declinedGameTypes_;
+    std::int64_t                              rotationId_{0};
 };
 
 }  // namespace tracker

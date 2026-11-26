@@ -29,7 +29,7 @@ public:
     DecksPanel(wxWindow* parent, AppContext& ctx);
 
     // Load decks for the given format and refresh the tree and archetype list.
-    void loadFormat(std::int64_t formatId);
+    void loadFormat(std::int64_t formatId, std::int64_t rotationId = 0);
 
     // Re-apply the current theme palette.
     void applyTheme();
@@ -46,6 +46,7 @@ private:
 
     AppContext& ctx_;
     std::int64_t formatId_{0};
+    std::int64_t rotationId_{0};
     std::vector<DeckArchetype> archetypes_;
 
     wxTextCtrl* nameCtrl_{nullptr};

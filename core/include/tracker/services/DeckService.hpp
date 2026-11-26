@@ -31,7 +31,8 @@ public:
                                       std::int64_t archetypeId,
                                       const std::string& name,
                                       const std::string& variant,
-                                      const std::string& variantNote);
+                                      const std::string& variantNote,
+                                      std::int64_t rotationId = 0);
 
     // Update an existing deck after trimming and validating inputs.
     // A new deck name is applied to every row in the format that shares the
@@ -42,10 +43,12 @@ public:
                                       const std::string& variant,
                                       const std::string& variantNote);
 
-    // Rename every deck in the format that shares `fromName`.
+    // Rename every deck in the format and rotation that shares `fromName`.
+    // `rotationId` 0 is the non-rotating scope.
     [[nodiscard]] Result<void> renameFamily(std::int64_t formatId,
                                             const std::string& fromName,
-                                            const std::string& toName);
+                                            const std::string& toName,
+                                            std::int64_t rotationId = 0);
 
     // Delete one variant row and every game that references it.
     // Refuses when the row is the main deck (empty variant).
@@ -55,9 +58,9 @@ public:
     // Refuses while any variant of that deck still exists.
     [[nodiscard]] Result<int> deleteDeck(std::int64_t deckId);
 
-    // Return all decks belonging to the given format.
+    // Return decks in the format. `rotationId` 0 is the non-rotating scope.
     [[nodiscard]] Result<std::vector<Deck>> listByFormat(
-        std::int64_t formatId);
+        std::int64_t formatId, std::int64_t rotationId = 0);
 
 private:
     IDeckRepository& repo_;

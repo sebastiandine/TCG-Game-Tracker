@@ -5,6 +5,7 @@
 #include "tracker/infra/SqliteDatabase.hpp"
 #include "tracker/infra/SqliteDeckRepository.hpp"
 #include "tracker/infra/SqliteFormatRepository.hpp"
+#include "tracker/infra/SqliteRotationRepository.hpp"
 #include "tracker/infra/SqliteGameRepository.hpp"
 #include "tracker/infra/SqliteGameTitleRepository.hpp"
 #include "tracker/infra/SqliteGameTypeRepository.hpp"
@@ -69,7 +70,9 @@ public:
         gameTitles_ = std::make_unique<tracker::GameTitleService>(*gameTitlesRepo_);
 
         formatsRepo_ = std::make_unique<tracker::SqliteFormatRepository>(*db_);
-        formats_ = std::make_unique<tracker::FormatService>(*formatsRepo_);
+        rotationsRepo_ = std::make_unique<tracker::SqliteRotationRepository>(*db_);
+        formats_ = std::make_unique<tracker::FormatService>(
+            *formatsRepo_, *rotationsRepo_);
 
         decksRepo_ = std::make_unique<tracker::SqliteDeckRepository>(*db_);
         decks_ = std::make_unique<tracker::DeckService>(*decksRepo_);
@@ -102,6 +105,7 @@ private:
     std::unique_ptr<tracker::SqliteGameTitleRepository> gameTitlesRepo_;
     std::unique_ptr<tracker::GameTitleService>          gameTitles_;
     std::unique_ptr<tracker::SqliteFormatRepository>   formatsRepo_;
+    std::unique_ptr<tracker::SqliteRotationRepository> rotationsRepo_;
     std::unique_ptr<tracker::FormatService>            formats_;
     std::unique_ptr<tracker::SqliteDeckRepository>      decksRepo_;
     std::unique_ptr<tracker::DeckService>              decks_;

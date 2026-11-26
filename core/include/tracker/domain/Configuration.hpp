@@ -3,7 +3,7 @@
 // Configuration: matches the persisted `config.json` schema used by this app.
 //
 //   { "dataStorage": "/abs/path", "theme": "Light",
-//     "selectedGameId": 0, "selectedFormatId": 0 }
+//     "selectedGameId": 0, "selectedFormatId": 0, "selectedRotationId": 0 }
 
 #include "tracker/domain/Enums.hpp"
 
@@ -19,6 +19,7 @@ struct Configuration {
     Theme        theme{Theme::Light};
     std::int64_t selectedGameId{0};
     std::int64_t selectedFormatId{0};
+    std::int64_t selectedRotationId{0};
 
     friend bool operator==(const Configuration&, const Configuration&) = default;
 };

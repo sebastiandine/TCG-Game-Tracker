@@ -389,4 +389,38 @@ TEST_SUITE("GameImportService") {
             if (d.name == "Jund midrange") CHECK(d.archetypeId == 2);
         }
     }
+
+    TEST_CASE("import assigns decks and games to the given rotation") {
+        testing::InMemoryDeckRepository decksRepo;
+        decksRepo.seedArchetypes();
+        testing::InMemoryGameTypeRepository typesRepo;
+        testing::InMemoryGameRepository gamesRepo;
+        DeckService decks(decksRepo);
+        GameTypeService types(typesRepo);
+        GameService games(gamesRepo);
+        GameImportService svc(decks, types, games);
+
+        ScriptedImportSink sink;
+        sink.defaultArchetypeId = 1;
+        sink.defaultType = {Competitiveness::NonCompetitive, PlayMedium::Paper};
+        auto row = makeRow(2, "2026-03-01", "Burn", "", "Zoo",
+                           MatchScore::TwoZero, "FNM");
+        auto report = svc.import(4, 1, {row}, sink, 9);
+        REQUIRE(report.isOk());
+        CHECK(report.value().gamesImported == 1);
+
+        auto inRotation = decks.listByFormat(4, 9);
+        REQUIRE(inRotation.isOk());
+        CHECK(inRotation.value().size() == 2);
+        for (const auto& deck : inRotation.value()) {
+            CHECK(deck.rotationId == 9);
+        }
+        CHECK(decks.listByFormat(4).value().empty());
+
+        auto played = games.listByFormat(4, 9);
+        REQUIRE(played.isOk());
+        REQUIRE(played.value().size() == 1);
+        CHECK(played.value()[0].rotationId == 9);
+        CHECK(games.listByFormat(4).value().empty());
+    }
 }

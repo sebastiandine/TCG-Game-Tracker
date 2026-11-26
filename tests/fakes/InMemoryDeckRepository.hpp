@@ -42,7 +42,8 @@ public:
                         std::int64_t archetypeId,
                         const std::string& name,
                         const std::string& variant,
-                        const std::string& variantNote) override {
+                        const std::string& variantNote,
+                        std::int64_t rotationId = 0) override {
         bool archetypeFound = false;
         for (const auto& a : archetypes_) {
             if (a.id == archetypeId) { archetypeFound = true; break; }
@@ -52,12 +53,13 @@ public:
         }
 
         for (const auto& d : decks_) {
-            if (d.formatId == formatId &&
+            if (sameDeckScope(d, formatId, rotationId) &&
                 equalsIgnoreCase(d.name, name) &&
                 equalsIgnoreCase(d.variant, variant)) {
                 return Result<Deck>::err(
                     "A deck named \"" + name + "\" with variant \"" + variant +
-                    "\" already exists in this format.");
+                    "\" already exists in this " +
+                    (rotationId == 0 ? "format." : "rotation."));
             }
         }
 
@@ -68,6 +70,7 @@ public:
         d.name = name;
         d.variant = variant;
         d.variantNote = variantNote;
+        d.rotationId = rotationId;
         decks_.push_back(d);
         return Result<Deck>::ok(d);
     }
@@ -95,7 +98,7 @@ public:
 
         for (const auto& d : decks_) {
             if (d.id != deckId &&
-                d.formatId == target->formatId &&
+                sameDeckScope(d, target->formatId, target->rotationId) &&
                 equalsIgnoreCase(d.name, name) &&
                 equalsIgnoreCase(d.variant, variant)) {
                 return Result<Deck>::err(
@@ -120,10 +123,11 @@ public:
 
     Result<void> renameFamily(std::int64_t formatId,
                               const std::string& fromName,
-                              const std::string& toName) override {
+                              const std::string& toName,
+                              std::int64_t rotationId = 0) override {
         std::vector<Deck*> family;
         for (auto& deck : decks_) {
-            if (deck.formatId == formatId &&
+            if (sameDeckScope(deck, formatId, rotationId) &&
                 equalsIgnoreCase(deck.name, fromName)) {
                 family.push_back(&deck);
             }
@@ -132,7 +136,7 @@ public:
         for (const auto* member : family) {
             for (const auto& other : decks_) {
                 const bool outsideFamily =
-                    other.formatId == formatId &&
+                    sameDeckScope(other, formatId, rotationId) &&
                     !equalsIgnoreCase(other.name, fromName);
                 if (outsideFamily &&
                     equalsIgnoreCase(other.name, toName) &&
@@ -140,7 +144,8 @@ public:
                     return Result<void>::err(
                         "A deck named \"" + toName + "\" with variant \"" +
                         member->variant +
-                        "\" already exists in this format.");
+                        "\" already exists in this " +
+                        (rotationId == 0 ? "format." : "rotation."));
                 }
             }
         }
@@ -166,10 +171,11 @@ public:
     // When set, remove() also deletes games that reference the deck.
     void bindGames(InMemoryGameRepository* games) { games_ = games; }
 
-    Result<std::vector<Deck>> listByFormat(std::int64_t formatId) override {
+    Result<std::vector<Deck>> listByFormat(std::int64_t formatId,
+                                           std::int64_t rotationId = 0) override {
         std::vector<Deck> result;
         for (const auto& d : decks_) {
-            if (d.formatId == formatId)
+            if (sameDeckScope(d, formatId, rotationId))
                 result.push_back(d);
         }
         return Result<std::vector<Deck>>::ok(result);
@@ -186,6 +192,11 @@ public:
     }
 
 private:
+    static bool sameDeckScope(const Deck& deck, std::int64_t formatId,
+                              std::int64_t rotationId) {
+        return deck.formatId == formatId && deck.rotationId == rotationId;
+    }
+
     static bool equalsIgnoreCase(const std::string& a, const std::string& b) {
         if (a.size() != b.size()) return false;
         for (std::size_t i = 0; i < a.size(); ++i) {

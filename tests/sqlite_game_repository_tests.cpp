@@ -6,6 +6,7 @@
 #include "tracker/infra/SqliteGameRepository.hpp"
 #include "tracker/infra/SqliteGameTitleRepository.hpp"
 #include "tracker/infra/SqliteGameTypeRepository.hpp"
+#include "tracker/infra/SqliteRotationRepository.hpp"
 
 using namespace tracker;
 
@@ -265,5 +266,50 @@ TEST_SUITE("SqliteGameRepository") {
         auto result = repo.listByFormat(1);
         REQUIRE(result.isOk());
         CHECK(result.value().empty());
+    }
+
+    TEST_CASE("rotation id is stored and listByFormat returns only that rotation") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+        const auto gameId = seedGame(db);
+        seedDefaultLookups(db, gameId);
+        SqliteFormatRepository formats(db);
+        auto fmt = formats.create(gameId, "Standard", true);
+        REQUIRE(fmt.isOk());
+        SqliteRotationRepository rotations(db);
+        auto early = rotations.create(fmt.value().id, "Early", 2024, 1, 2024, 3);
+        auto late = rotations.create(fmt.value().id, "Late", 2024, 4, 2024, 6);
+        REQUIRE(early.isOk());
+        REQUIRE(late.isOk());
+
+        SqliteDeckRepository decks(db);
+        auto deck = decks.create(fmt.value().id, 1, "Burn", "", "", early.value().id);
+        auto other = decks.create(fmt.value().id, 1, "Burn", "", "", late.value().id);
+        REQUIRE(deck.isOk());
+        REQUIRE(other.isOk());
+
+        SqliteGameRepository games(db);
+        auto created = games.create(fmt.value().id, "2024-02-02", deck.value().id,
+                                    deck.value().id, "Ada", MatchResult::Win,
+                                    MatchScore::TwoOne, 1, "", early.value().id);
+        REQUIRE(created.isOk());
+        CHECK(created.value().rotationId == early.value().id);
+        REQUIRE(games.create(fmt.value().id, "2024-05-05", other.value().id,
+                             other.value().id, "", MatchResult::Loss,
+                             MatchScore::OneTwo, 1, "", late.value().id)
+                    .isOk());
+
+        auto earlyGames = games.listByFormat(fmt.value().id, early.value().id);
+        REQUIRE(earlyGames.isOk());
+        REQUIRE(earlyGames.value().size() == 1);
+        CHECK(earlyGames.value()[0].id == created.value().id);
+        CHECK(games.listByFormat(fmt.value().id).value().empty());
+
+        auto updated = games.update(created.value().id, "2024-02-03",
+                                    deck.value().id, deck.value().id, "Ada",
+                                    MatchResult::Loss, MatchScore::OneTwo, 1, "note");
+        REQUIRE(updated.isOk());
+        CHECK(updated.value().rotationId == early.value().id);
+        CHECK(updated.value().playedOn == "2024-02-03");
     }
 }

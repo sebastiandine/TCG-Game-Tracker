@@ -28,6 +28,7 @@ Game rowToGame(sqlite3_stmt* stmt) {
     g.score = s.value_or(MatchScore::TwoOne);
     g.gameTypeId     = sqlite3_column_int64(stmt, 8);
     g.notes          = safeText(stmt, 9);
+    g.rotationId     = sqlite3_column_int64(stmt, 10);
     return g;
 }
 
@@ -44,11 +45,12 @@ Result<Game> SqliteGameRepository::create(std::int64_t formatId,
                                           MatchResult result,
                                           MatchScore score,
                                           std::int64_t gameTypeId,
-                                          const std::string& notes) {
+                                          const std::string& notes,
+                                          std::int64_t rotationId) {
     const char* sql =
         "INSERT INTO Games (format_id, played_on, deck_id, opponent_deck_id,"
-        " opponent, result, score, game_type_id, notes)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        " opponent, result, score, game_type_id, notes, rotation_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt = nullptr;
 
     int rc = sqlite3_prepare_v2(db_.handle(), sql, -1, &stmt, nullptr);
@@ -69,6 +71,8 @@ Result<Game> SqliteGameRepository::create(std::int64_t formatId,
     sqlite3_bind_text(stmt, 7, scoreStr.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 8, gameTypeId);
     sqlite3_bind_text(stmt, 9, notes.c_str(), -1, SQLITE_TRANSIENT);
+    if (rotationId == 0) sqlite3_bind_null(stmt, 10);
+    else sqlite3_bind_int64(stmt, 10, rotationId);
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
 
@@ -76,7 +80,7 @@ Result<Game> SqliteGameRepository::create(std::int64_t formatId,
         const std::string errMsg = sqlite3_errmsg(db_.handle());
         if (errMsg.find("FOREIGN KEY constraint") != std::string::npos) {
             return Result<Game>::err(
-                "Invalid format, deck, or game type reference.");
+                "Invalid format, deck, game type, or rotation reference.");
         }
         return Result<Game>::err("Failed to create game: " + errMsg);
     }
@@ -92,6 +96,7 @@ Result<Game> SqliteGameRepository::create(std::int64_t formatId,
     g.score = score;
     g.gameTypeId = gameTypeId;
     g.notes = notes;
+    g.rotationId = rotationId;
     return Result<Game>::ok(std::move(g));
 }
 
@@ -146,7 +151,7 @@ Result<Game> SqliteGameRepository::update(std::int64_t gameId,
     // Read back the full row.
     const char* selectSql =
         "SELECT id, format_id, played_on, deck_id, opponent_deck_id, opponent,"
-        " result, score, game_type_id, notes FROM Games WHERE id = ?;";
+        " result, score, game_type_id, notes, rotation_id FROM Games WHERE id = ?;";
     sqlite3_stmt* selStmt = nullptr;
     rc = sqlite3_prepare_v2(db_.handle(), selectSql, -1, &selStmt, nullptr);
     if (rc != SQLITE_OK) {
@@ -166,11 +171,12 @@ Result<Game> SqliteGameRepository::update(std::int64_t gameId,
 }
 
 Result<std::vector<Game>> SqliteGameRepository::listByFormat(
-    std::int64_t formatId) {
+    std::int64_t formatId, std::int64_t rotationId) {
     const char* sql =
         "SELECT id, format_id, played_on, deck_id, opponent_deck_id, opponent,"
-        " result, score, game_type_id, notes FROM Games"
-        " WHERE format_id = ?"
+        " result, score, game_type_id, notes, rotation_id FROM Games"
+        " WHERE format_id = ?1"
+        " AND ((?2 = 0 AND rotation_id IS NULL) OR rotation_id = ?2)"
         " ORDER BY played_on DESC, id DESC;";
     sqlite3_stmt* stmt = nullptr;
 
@@ -182,6 +188,7 @@ Result<std::vector<Game>> SqliteGameRepository::listByFormat(
     }
 
     sqlite3_bind_int64(stmt, 1, formatId);
+    sqlite3_bind_int64(stmt, 2, rotationId);
 
     std::vector<Game> games;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {

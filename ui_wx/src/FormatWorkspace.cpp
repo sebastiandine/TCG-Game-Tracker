@@ -80,12 +80,13 @@ FormatWorkspace::FormatWorkspace(wxWindow* parent, AppContext& ctx)
     selectTab(0);
 }
 
-void FormatWorkspace::loadFormat(std::int64_t formatId) {
+void FormatWorkspace::loadFormat(std::int64_t formatId, std::int64_t rotationId) {
     formatId_ = formatId;
+    rotationId_ = rotationId;
     closeAllDeckTabs();
-    decksPanel_->loadFormat(formatId_);
-    gamesPanel_->loadFormat(formatId_);
-    statisticsPanel_->loadFormat(formatId_);
+    decksPanel_->loadFormat(formatId_, rotationId_);
+    gamesPanel_->loadFormat(formatId_, rotationId_);
+    statisticsPanel_->loadFormat(formatId_, rotationId_);
 }
 
 void FormatWorkspace::applyTheme() {
@@ -225,7 +226,7 @@ void FormatWorkspace::openDeckStats(const DeckStatsKey& key) {
     if (tabSizer == nullptr) return;
 
     auto* page = new DeckStatisticsPanel(book_, ctx_);
-    page->load(formatId_, key);
+    page->load(formatId_, rotationId_, key);
     book_->AddPage(page, deckTabLabel(key));
     page->applyTheme();
 
@@ -316,16 +317,16 @@ void FormatWorkspace::selectTab(int index) {
     activeTab_ = index;
     book_->SetSelection(index);
     if (index == kTabGames && gamesPanel_ != nullptr && formatId_ > 0) {
-        gamesPanel_->loadFormat(formatId_);
+        gamesPanel_->loadFormat(formatId_, rotationId_);
     }
     if (index == kTabStatistics && statisticsPanel_ != nullptr &&
         formatId_ > 0) {
-        statisticsPanel_->loadFormat(formatId_);
+        statisticsPanel_->loadFormat(formatId_, rotationId_);
     }
     if (index >= kTabCount) {
         auto& tab = tabs_[static_cast<std::size_t>(index)];
         if (tab.deckPanel != nullptr && formatId_ > 0) {
-            tab.deckPanel->load(formatId_, tab.deckKey);
+            tab.deckPanel->load(formatId_, rotationId_, tab.deckKey);
         }
     }
     refreshTabBarTheme();

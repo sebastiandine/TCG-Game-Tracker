@@ -21,7 +21,8 @@ public:
                                       std::int64_t archetypeId,
                                       const std::string& name,
                                       const std::string& variant,
-                                      const std::string& variantNote) override;
+                                      const std::string& variantNote,
+                                      std::int64_t rotationId = 0) override;
 
     [[nodiscard]] Result<Deck> update(std::int64_t deckId,
                                       std::int64_t archetypeId,
@@ -34,12 +35,13 @@ public:
     [[nodiscard]] Result<void> renameFamily(
         std::int64_t formatId,
         const std::string& fromName,
-        const std::string& toName) override;
+        const std::string& toName,
+        std::int64_t rotationId = 0) override;
 
     [[nodiscard]] Result<int> remove(std::int64_t deckId) override;
 
     [[nodiscard]] Result<std::vector<Deck>> listByFormat(
-        std::int64_t formatId) override;
+        std::int64_t formatId, std::int64_t rotationId = 0) override;
 
 private:
     SqliteDatabase& db_;

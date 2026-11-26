@@ -1,6 +1,7 @@
 #include "tracker/ui/GamesPanel.hpp"
 #include "tracker/ui/AppContext.hpp"
 #include "tracker/ui/GameDialog.hpp"
+#include "tracker/ui/RotationFields.hpp"
 #include "tracker/ui/Theme.hpp"
 
 #include <algorithm>
@@ -145,7 +146,7 @@ void GamesPanel::onAdd() {
     if (formatId_ <= 0) return;
 
     // Refresh decks so any newly created decks are available.
-    auto deckResult = ctx_.decks.listByFormat(formatId_);
+    auto deckResult = ctx_.decks.listByFormat(formatId_, rotationId_);
     if (!deckResult) return;
     decks_ = std::move(deckResult.value());
 
@@ -168,8 +169,14 @@ void GamesPanel::onAdd() {
         return;
     }
 
+    if (!confirmOlderRotation(
+            this, ctx_.formats, formatId_, rotationId_,
+            "Record this game in it anyway?")) {
+        return;
+    }
+
     GameDialog dlg(this, ctx_, formatId_, decks_, gameTypes_,
-                   std::nullopt, lastDeckId_, lastGameTypeId_);
+                   std::nullopt, lastDeckId_, lastGameTypeId_, rotationId_);
     themeModalDialog(&dlg, ctx_.config.current().theme);
     if (dlg.ShowModal() == wxID_OK) {
         lastDeckId_ = dlg.savedGame().deckId;
@@ -185,7 +192,7 @@ void GamesPanel::onRowActivated(wxListEvent& evt) {
 
     const Game& game = *visible_[idx];
 
-    auto deckResult = ctx_.decks.listByFormat(formatId_);
+    auto deckResult = ctx_.decks.listByFormat(formatId_, rotationId_);
     if (!deckResult) return;
     decks_ = std::move(deckResult.value());
 
@@ -242,11 +249,11 @@ bool GamesPanel::matchesFilter(const Game& game) const {
 }
 
 void GamesPanel::refreshList() {
-    auto result = ctx_.games.listByFormat(formatId_);
+    auto result = ctx_.games.listByFormat(formatId_, rotationId_);
     if (!result) return;
     allGames_ = std::move(result.value());
 
-    auto deckResult = ctx_.decks.listByFormat(formatId_);
+    auto deckResult = ctx_.decks.listByFormat(formatId_, rotationId_);
     if (deckResult) {
         decks_ = std::move(deckResult.value());
     }
@@ -305,8 +312,9 @@ void GamesPanel::rebuildRows() {
     rebuildingList_ = false;
 }
 
-void GamesPanel::loadFormat(std::int64_t formatId) {
+void GamesPanel::loadFormat(std::int64_t formatId, std::int64_t rotationId) {
     formatId_ = formatId;
+    rotationId_ = rotationId;
     lastDeckId_ = 0;
     lastGameTypeId_ = 0;
     sortCol_ = -1;

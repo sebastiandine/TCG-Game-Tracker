@@ -21,6 +21,7 @@ struct Game {
     MatchScore   score{MatchScore::TwoOne};
     std::int64_t gameTypeId{0};     // FK to GameTypes
     std::string  notes;
+    std::int64_t rotationId{0};     // 0 for a non-rotating format
 
     friend bool operator==(const Game&, const Game&) = default;
 };

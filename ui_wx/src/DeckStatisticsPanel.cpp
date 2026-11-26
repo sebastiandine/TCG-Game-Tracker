@@ -599,8 +599,10 @@ void DeckStatisticsPanel::onColumnClick(wxListEvent& evt) {
     refillTable(*table);
 }
 
-void DeckStatisticsPanel::load(std::int64_t formatId, const DeckStatsKey& key) {
+void DeckStatisticsPanel::load(std::int64_t formatId, std::int64_t rotationId,
+                              const DeckStatsKey& key) {
     formatId_ = formatId;
+    rotationId_ = rotationId;
     key_ = key;
     refresh();
 }
@@ -608,8 +610,8 @@ void DeckStatisticsPanel::load(std::int64_t formatId, const DeckStatsKey& key) {
 void DeckStatisticsPanel::refresh() {
     DeckDetailStatistics stats;
     if (formatId_ > 0) {
-        auto deckResult = ctx_.decks.listByFormat(formatId_);
-        auto gameResult = ctx_.games.listByFormat(formatId_);
+        auto deckResult = ctx_.decks.listByFormat(formatId_, rotationId_);
+        auto gameResult = ctx_.games.listByFormat(formatId_, rotationId_);
         auto archResult = ctx_.decks.listByGame(
             ctx_.config.current().selectedGameId);
         if (deckResult && gameResult && archResult) {

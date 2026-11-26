@@ -10,12 +10,14 @@ namespace tracker::ui {
 
 RenameDeckDialog::RenameDeckDialog(wxWindow* parent, DeckService& decks,
                                    std::int64_t formatId,
+                                   std::int64_t rotationId,
                                    const std::string& currentName)
     : wxDialog(parent, wxID_ANY, "Rename Deck",
                wxDefaultPosition, wxSize(420, 150),
                wxDEFAULT_DIALOG_STYLE),
       decks_(decks),
       formatId_(formatId),
+      rotationId_(rotationId),
       currentName_(currentName) {
     auto* root = new wxBoxSizer(wxVERTICAL);
 
@@ -39,7 +41,7 @@ RenameDeckDialog::RenameDeckDialog(wxWindow* parent, DeckService& decks,
 
 void RenameDeckDialog::onOk(wxCommandEvent&) {
     const std::string name = nameCtrl_->GetValue().ToStdString(wxConvUTF8);
-    auto result = decks_.renameFamily(formatId_, currentName_, name);
+    auto result = decks_.renameFamily(formatId_, currentName_, name, rotationId_);
     if (!result) {
         showThemedMessageDialog(
             this, wxString::FromUTF8(result.error().c_str()),

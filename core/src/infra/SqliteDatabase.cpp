@@ -80,14 +80,15 @@ Result<void> attachLegacyRowsToMagic(sqlite3* db) {
 
     const std::string rebuild =
         "CREATE TABLE Formats_new ("
-        "  id      INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  game_id INTEGER NOT NULL,"
-        "  name    TEXT    NOT NULL COLLATE NOCASE,"
+        "  id          INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  game_id     INTEGER NOT NULL,"
+        "  name        TEXT    NOT NULL COLLATE NOCASE,"
+        "  is_rotating INTEGER NOT NULL DEFAULT 0,"
         "  FOREIGN KEY (game_id) REFERENCES GameTitles(id),"
         "  UNIQUE (game_id, name)"
         ");"
-        "INSERT INTO Formats_new (id, game_id, name) "
-        "SELECT id, " + magicIdSql + ", name FROM Formats;"
+        "INSERT INTO Formats_new (id, game_id, name, is_rotating) "
+        "SELECT id, " + magicIdSql + ", name, 0 FROM Formats;"
         "DROP TABLE Formats;"
         "ALTER TABLE Formats_new RENAME TO Formats;"
 
@@ -133,6 +134,106 @@ Result<void> attachLegacyRowsToMagic(sqlite3* db) {
 
     return execSql(db, "PRAGMA foreign_keys = ON;",
                    "Failed to enable foreign keys: ");
+}
+
+// Adds rotating-format columns and the Rotations table. Existing decks are
+// rebuilt so uniqueness is per rotation (or per format when rotation_id is
+// null) instead of a single table-level UNIQUE.
+Result<void> applyRotationSchema(sqlite3* db) {
+    if (tableExists(db, "Formats") &&
+        !columnExists(db, "Formats", "is_rotating")) {
+        auto altered = execSql(
+            db,
+            "ALTER TABLE Formats ADD COLUMN is_rotating INTEGER NOT NULL DEFAULT 0;",
+            "Database migration failed: ");
+        if (!altered) return altered;
+    }
+
+    auto rotations = execSql(
+        db,
+        "CREATE TABLE IF NOT EXISTS Rotations ("
+        "  id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  format_id       INTEGER NOT NULL,"
+        "  name            TEXT    NOT NULL COLLATE NOCASE,"
+        "  start_year      INTEGER NOT NULL,"
+        "  start_month     INTEGER NOT NULL,"
+        "  end_year        INTEGER NOT NULL,"
+        "  end_month       INTEGER NOT NULL,"
+        "  expiry_prompted INTEGER NOT NULL DEFAULT 0,"
+        "  FOREIGN KEY (format_id) REFERENCES Formats(id),"
+        "  UNIQUE (format_id, name),"
+        "  CHECK (start_month BETWEEN 1 AND 12),"
+        "  CHECK (end_month BETWEEN 1 AND 12),"
+        "  CHECK (end_year * 12 + end_month >= start_year * 12 + start_month)"
+        ");",
+        "Database migration failed: ");
+    if (!rotations) return rotations;
+
+    if (tableExists(db, "Decks") && !columnExists(db, "Decks", "rotation_id")) {
+        auto fkOff = execSql(db, "PRAGMA foreign_keys = OFF;",
+                             "Failed to disable foreign keys: ");
+        if (!fkOff) return fkOff;
+        auto begin = execSql(db, "BEGIN;", "Database migration failed: ");
+        if (!begin) {
+            execSql(db, "PRAGMA foreign_keys = ON;", "");
+            return begin;
+        }
+        auto rebuilt = execSql(
+            db,
+            "CREATE TABLE Decks_new ("
+            "  id            INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  format_id     INTEGER NOT NULL,"
+            "  archetype_id  INTEGER NOT NULL,"
+            "  name          TEXT    NOT NULL COLLATE NOCASE,"
+            "  variant       TEXT    NOT NULL DEFAULT '' COLLATE NOCASE,"
+            "  variant_note  TEXT    NOT NULL DEFAULT '',"
+            "  rotation_id   INTEGER,"
+            "  FOREIGN KEY (format_id)    REFERENCES Formats(id),"
+            "  FOREIGN KEY (archetype_id) REFERENCES DeckArchetypes(id),"
+            "  FOREIGN KEY (rotation_id)  REFERENCES Rotations(id)"
+            ");"
+            "INSERT INTO Decks_new (id, format_id, archetype_id, name, variant,"
+            "                       variant_note, rotation_id) "
+            "SELECT id, format_id, archetype_id, name, variant, variant_note, NULL "
+            "FROM Decks;"
+            "DROP TABLE Decks;"
+            "ALTER TABLE Decks_new RENAME TO Decks;",
+            "Database migration failed: ");
+        if (!rebuilt) {
+            sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            execSql(db, "PRAGMA foreign_keys = ON;", "");
+            return rebuilt;
+        }
+        auto commit = execSql(db, "COMMIT;", "Database migration failed: ");
+        if (!commit) {
+            sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            execSql(db, "PRAGMA foreign_keys = ON;", "");
+            return commit;
+        }
+        auto fkOn = execSql(db, "PRAGMA foreign_keys = ON;",
+                            "Failed to enable foreign keys: ");
+        if (!fkOn) return fkOn;
+    }
+
+    if (tableExists(db, "Games") && !columnExists(db, "Games", "rotation_id")) {
+        auto altered = execSql(
+            db,
+            "ALTER TABLE Games ADD COLUMN rotation_id INTEGER REFERENCES Rotations(id);",
+            "Database migration failed: ");
+        if (!altered) return altered;
+    }
+
+    auto indexes = execSql(
+        db,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_decks_format_name_variant "
+        "  ON Decks (format_id, name, variant) WHERE rotation_id IS NULL;"
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_decks_rotation_name_variant "
+        "  ON Decks (rotation_id, name, variant) WHERE rotation_id IS NOT NULL;"
+        "CREATE INDEX IF NOT EXISTS idx_games_rotation_date "
+        "  ON Games (rotation_id, played_on DESC, id DESC);",
+        "Database migration failed: ");
+    if (!indexes) return indexes;
+    return Result<void>::ok();
 }
 
 }  // namespace
@@ -187,11 +288,28 @@ Result<void> SqliteDatabase::migrate() {
         ");"
 
         "CREATE TABLE IF NOT EXISTS Formats ("
-        "  id      INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  game_id INTEGER NOT NULL,"
-        "  name    TEXT    NOT NULL COLLATE NOCASE,"
+        "  id          INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  game_id     INTEGER NOT NULL,"
+        "  name        TEXT    NOT NULL COLLATE NOCASE,"
+        "  is_rotating INTEGER NOT NULL DEFAULT 0,"
         "  FOREIGN KEY (game_id) REFERENCES GameTitles(id),"
         "  UNIQUE (game_id, name)"
+        ");"
+
+        "CREATE TABLE IF NOT EXISTS Rotations ("
+        "  id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  format_id       INTEGER NOT NULL,"
+        "  name            TEXT    NOT NULL COLLATE NOCASE,"
+        "  start_year      INTEGER NOT NULL,"
+        "  start_month     INTEGER NOT NULL,"
+        "  end_year        INTEGER NOT NULL,"
+        "  end_month       INTEGER NOT NULL,"
+        "  expiry_prompted INTEGER NOT NULL DEFAULT 0,"
+        "  FOREIGN KEY (format_id) REFERENCES Formats(id),"
+        "  UNIQUE (format_id, name),"
+        "  CHECK (start_month BETWEEN 1 AND 12),"
+        "  CHECK (end_month BETWEEN 1 AND 12),"
+        "  CHECK (end_year * 12 + end_month >= start_year * 12 + start_month)"
         ");"
 
         "CREATE TABLE IF NOT EXISTS DeckArchetypes ("
@@ -219,9 +337,10 @@ Result<void> SqliteDatabase::migrate() {
         "  name          TEXT    NOT NULL COLLATE NOCASE,"
         "  variant       TEXT    NOT NULL DEFAULT '' COLLATE NOCASE,"
         "  variant_note  TEXT    NOT NULL DEFAULT '',"
+        "  rotation_id   INTEGER,"
         "  FOREIGN KEY (format_id)    REFERENCES Formats(id),"
         "  FOREIGN KEY (archetype_id) REFERENCES DeckArchetypes(id),"
-        "  UNIQUE (format_id, name, variant)"
+        "  FOREIGN KEY (rotation_id)  REFERENCES Rotations(id)"
         ");"
 
         "CREATE TABLE IF NOT EXISTS Games ("
@@ -235,10 +354,12 @@ Result<void> SqliteDatabase::migrate() {
         "  score            TEXT    NOT NULL,"
         "  game_type_id     INTEGER NOT NULL,"
         "  notes            TEXT    NOT NULL DEFAULT '',"
+        "  rotation_id      INTEGER,"
         "  FOREIGN KEY (format_id)        REFERENCES Formats(id),"
         "  FOREIGN KEY (deck_id)          REFERENCES Decks(id),"
         "  FOREIGN KEY (opponent_deck_id) REFERENCES Decks(id),"
-        "  FOREIGN KEY (game_type_id)     REFERENCES GameTypes(id)"
+        "  FOREIGN KEY (game_type_id)     REFERENCES GameTypes(id),"
+        "  FOREIGN KEY (rotation_id)      REFERENCES Rotations(id)"
         ");"
         "CREATE INDEX IF NOT EXISTS idx_games_format_date"
         "  ON Games (format_id, played_on DESC, id DESC);";
@@ -258,7 +379,8 @@ Result<void> SqliteDatabase::migrate() {
 
     // Legacy Formats/GameTypes/DeckArchetypes lack game_id.
     if (tableExists(db_, "Formats") && !columnExists(db_, "Formats", "game_id")) {
-        return attachLegacyRowsToMagic(db_);
+        auto attached = attachLegacyRowsToMagic(db_);
+        if (!attached) return attached;
     }
 
     // Incomplete mid-migration DBs may already have Formats.game_id but still
@@ -316,7 +438,7 @@ Result<void> SqliteDatabase::migrate() {
         if (!fkOn2) return fkOn2;
     }
 
-    return Result<void>::ok();
+    return applyRotationSchema(db_);
 }
 
 }  // namespace tracker

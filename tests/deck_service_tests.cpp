@@ -408,4 +408,29 @@ TEST_SUITE("DeckService") {
         CHECK(removed.isErr());
         CHECK(repo.findById(main.value().id).isOk());
     }
+
+    TEST_CASE("the same deck name is allowed in another rotation") {
+        testing::InMemoryDeckRepository repo;
+        repo.seedArchetypes();
+        DeckService svc(repo);
+
+        auto first = svc.create(1, 1, "Burn", "", "", 10);
+        REQUIRE(first.isOk());
+        auto second = svc.create(1, 1, "Burn", "", "", 11);
+        REQUIRE(second.isOk());
+        CHECK(second.value().rotationId == 11);
+
+        auto again = svc.create(1, 1, "burn", "", "", 10);
+        CHECK(again.isErr());
+
+        auto listed = svc.listByFormat(1, 10);
+        REQUIRE(listed.isOk());
+        REQUIRE(listed.value().size() == 1);
+        CHECK(listed.value()[0].id == first.value().id);
+
+        auto renamed = svc.renameFamily(1, "Burn", "Red", 10);
+        REQUIRE(renamed.isOk());
+        CHECK(svc.listByFormat(1, 11).value()[0].name == "Burn");
+        CHECK(svc.listByFormat(1, 10).value()[0].name == "Red");
+    }
 }

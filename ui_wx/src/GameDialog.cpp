@@ -206,13 +206,15 @@ GameDialog::GameDialog(wxWindow* parent, AppContext& ctx,
                        const std::vector<GameType>& gameTypes,
                        const std::optional<Game>& game,
                        std::int64_t lastDeckId,
-                       std::int64_t lastGameTypeId)
+                       std::int64_t lastGameTypeId,
+                       std::int64_t rotationId)
     : wxDialog(parent, wxID_ANY,
                game.has_value() ? "Edit Game" : "Add Game",
                wxDefaultPosition, wxSize(520, 460),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       ctx_(ctx),
       formatId_(formatId),
+      rotationId_(rotationId),
       decks_(decks),
       gameTypes_(gameTypes),
       existing_(game) {
@@ -567,7 +569,7 @@ void GameDialog::onOk(wxCommandEvent&) {
     } else {
         auto res = ctx_.games.create(formatId_, playedOn, deckId,
                                      opponentDeckId, opponent, result, score,
-                                     gameTypeId, notes);
+                                     gameTypeId, notes, rotationId_);
         if (!res) {
             showThemedMessageDialog(
                 this, wxString::FromUTF8(res.error().c_str()),

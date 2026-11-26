@@ -8,6 +8,7 @@ void to_json(nlohmann::json& j, const Configuration& c) {
         {"theme", c.theme},
         {"selectedGameId", c.selectedGameId},
         {"selectedFormatId", c.selectedFormatId},
+        {"selectedRotationId", c.selectedRotationId},
     };
 }
 
@@ -16,6 +17,7 @@ void from_json(const nlohmann::json& j, Configuration& c) {
     c.theme = j.value("theme", Theme::Light);
     c.selectedGameId = j.value("selectedGameId", std::int64_t{0});
     c.selectedFormatId = j.value("selectedFormatId", std::int64_t{0});
+    c.selectedRotationId = j.value("selectedRotationId", std::int64_t{0});
 }
 
 }  // namespace tracker

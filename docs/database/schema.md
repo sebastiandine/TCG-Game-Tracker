@@ -31,9 +31,10 @@ Stores format definitions scoped to a game title (e.g. "Standard", "Commander").
 
 ```sql
 CREATE TABLE Formats (
-  id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  game_id INTEGER NOT NULL,
-  name    TEXT    NOT NULL COLLATE NOCASE,
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id     INTEGER NOT NULL,
+  name        TEXT    NOT NULL COLLATE NOCASE,
+  is_rotating INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (game_id) REFERENCES GameTitles(id),
   UNIQUE (game_id, name)
 );
@@ -44,10 +45,51 @@ CREATE TABLE Formats (
 | `id` | `INTEGER` | `PRIMARY KEY AUTOINCREMENT` | Consecutive numeric identifier. |
 | `game_id` | `INTEGER` | `NOT NULL, FK → GameTitles(id)` | The game this format belongs to. |
 | `name` | `TEXT` | `NOT NULL COLLATE NOCASE` | Human-readable format name. Unique per game, case-insensitive. |
+| `is_rotating` | `INTEGER` | `NOT NULL DEFAULT 0` | `1` when the format uses rotations, otherwise `0`. |
 
 ### Notes
 
 - Two games may both have a format named "Standard".
+- The application trims whitespace and rejects empty names before insertion.
+- `is_rotating` is chosen when the format is created and is not edited later. Existing databases gain the column as `0`.
+
+## Rotations
+
+Named month-spans that belong to a rotating format. A non-rotating format has no rows here.
+
+```sql
+CREATE TABLE Rotations (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  format_id       INTEGER NOT NULL,
+  name            TEXT    NOT NULL COLLATE NOCASE,
+  start_year      INTEGER NOT NULL,
+  start_month     INTEGER NOT NULL,
+  end_year        INTEGER NOT NULL,
+  end_month       INTEGER NOT NULL,
+  expiry_prompted INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (format_id) REFERENCES Formats(id),
+  UNIQUE (format_id, name),
+  CHECK (start_month BETWEEN 1 AND 12),
+  CHECK (end_month BETWEEN 1 AND 12),
+  CHECK (end_year * 12 + end_month >= start_year * 12 + start_month)
+);
+```
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `INTEGER` | `PRIMARY KEY AUTOINCREMENT` | Consecutive numeric identifier. |
+| `format_id` | `INTEGER` | `NOT NULL, FK → Formats(id)` | The rotating format this rotation belongs to. |
+| `name` | `TEXT` | `NOT NULL COLLATE NOCASE` | Rotation name. Unique per format, case-insensitive. |
+| `start_year` | `INTEGER` | `NOT NULL` | First year of the span. |
+| `start_month` | `INTEGER` | `NOT NULL`, 1–12 | First month of the span, inclusive. |
+| `end_year` | `INTEGER` | `NOT NULL` | Last year of the span. |
+| `end_month` | `INTEGER` | `NOT NULL`, 1–12 | Last month of the span, inclusive. Must not be before the start. |
+| `expiry_prompted` | `INTEGER` | `NOT NULL DEFAULT 0` | `1` after the app has asked once about creating a successor because this rotation ended. |
+
+### Notes
+
+- Listed and treated as "latest" by start year, then start month, then id.
+- Spans may overlap or leave gaps. Game dates are not required to fall inside the span.
 - The application trims whitespace and rejects empty names before insertion.
 
 ## DeckArchetypes
@@ -116,10 +158,15 @@ CREATE TABLE Decks (
   name          TEXT    NOT NULL COLLATE NOCASE,
   variant       TEXT    NOT NULL DEFAULT '' COLLATE NOCASE,
   variant_note  TEXT    NOT NULL DEFAULT '',
+  rotation_id   INTEGER,
   FOREIGN KEY (format_id)    REFERENCES Formats(id),
   FOREIGN KEY (archetype_id) REFERENCES DeckArchetypes(id),
-  UNIQUE (format_id, name, variant)
+  FOREIGN KEY (rotation_id)  REFERENCES Rotations(id)
 );
+CREATE UNIQUE INDEX idx_decks_format_name_variant
+  ON Decks (format_id, name, variant) WHERE rotation_id IS NULL;
+CREATE UNIQUE INDEX idx_decks_rotation_name_variant
+  ON Decks (rotation_id, name, variant) WHERE rotation_id IS NOT NULL;
 ```
 
 | Column | Type | Constraints | Description |
@@ -130,10 +177,12 @@ CREATE TABLE Decks (
 | `name` | `TEXT` | `NOT NULL COLLATE NOCASE` | Deck name (e.g. "Landstill"). |
 | `variant` | `TEXT` | `NOT NULL DEFAULT '' COLLATE NOCASE` | Variant label (e.g. "Glaciers"). Empty string for base deck. |
 | `variant_note` | `TEXT` | `NOT NULL DEFAULT ''` | Free-text notes about this variant. |
+| `rotation_id` | `INTEGER` | `NULL, FK → Rotations(id)` | The rotation this deck belongs to. Null for a non-rotating format. |
 
 ### Notes
 
-- `UNIQUE (format_id, name, variant)` prevents duplicate deck+variant combinations within a format (case-insensitive via `COLLATE NOCASE` on both `name` and `variant`).
+- The same deck name and variant may exist in two rotations of one format. They stay unique inside one rotation, and inside a non-rotating format (`rotation_id` null).
+- Existing databases are rebuilt in place so row ids stay the same and `rotation_id` is null.
 - An empty `variant` is allowed and represents the "base" version of a deck.
 - Foreign key enforcement is enabled via `PRAGMA foreign_keys = ON` on every database open.
 - Deleting a deck does not use `ON DELETE CASCADE`. The application first deletes every game whose `deck_id` or `opponent_deck_id` is that row, then deletes the deck row.
@@ -154,13 +203,17 @@ CREATE TABLE Games (
   score            TEXT    NOT NULL,
   game_type_id     INTEGER NOT NULL,
   notes            TEXT    NOT NULL DEFAULT '',
+  rotation_id      INTEGER,
   FOREIGN KEY (format_id)        REFERENCES Formats(id),
   FOREIGN KEY (deck_id)          REFERENCES Decks(id),
   FOREIGN KEY (opponent_deck_id) REFERENCES Decks(id),
-  FOREIGN KEY (game_type_id)     REFERENCES GameTypes(id)
+  FOREIGN KEY (game_type_id)     REFERENCES GameTypes(id),
+  FOREIGN KEY (rotation_id)      REFERENCES Rotations(id)
 );
 CREATE INDEX idx_games_format_date
   ON Games (format_id, played_on DESC, id DESC);
+CREATE INDEX idx_games_rotation_date
+  ON Games (rotation_id, played_on DESC, id DESC);
 ```
 
 | Column | Type | Constraints | Description |
@@ -175,6 +228,7 @@ CREATE INDEX idx_games_format_date
 | `score` | `TEXT` | `NOT NULL` | Game score: `"2-1"`, `"2-0"`, `"1-2"`, `"0-2"`, or `"1-1"`. |
 | `game_type_id` | `INTEGER` | `NOT NULL, FK → GameTypes(id)` | The game type (e.g. MTGO League, FNM). |
 | `notes` | `TEXT` | `NOT NULL DEFAULT ''` | Free-text notes about the game. |
+| `rotation_id` | `INTEGER` | `NULL, FK → Rotations(id)` | The rotation this game was recorded in. Null for a non-rotating format. |
 
 ### Notes
 
@@ -183,17 +237,21 @@ CREATE INDEX idx_games_format_date
 - `opponent_deck_id` references the opponent's main deck (empty-variant row or lowest-id row for that name).
 - `opponent` is a free-text name (not a foreign key). Existing databases created before this column get it via `ALTER TABLE ... ADD COLUMN` on open.
 - `game_type_id` references the game type (see GameTypes table).
-- The composite index `idx_games_format_date` speeds up the default descending date+id query.
+- `rotation_id` is set from the active rotation when the game is created and is not changed by later edits. Existing databases gain the column as null.
+- The composite index `idx_games_format_date` speeds up the default descending date+id query. `idx_games_rotation_date` does the same within one rotation.
 - Foreign key enforcement is enabled via `PRAGMA foreign_keys = ON` on every database open.
 
 ## Relations
 
 - `Formats.game_id` → `GameTitles.id`
+- `Rotations.format_id` → `Formats.id`
 - `DeckArchetypes.game_id` → `GameTitles.id`
 - `GameTypes.game_id` → `GameTitles.id`
 - `Decks.format_id` → `Formats.id`
 - `Decks.archetype_id` → `DeckArchetypes.id`
+- `Decks.rotation_id` → `Rotations.id`
 - `Games.format_id` → `Formats.id`
 - `Games.deck_id` → `Decks.id`
 - `Games.opponent_deck_id` → `Decks.id`
 - `Games.game_type_id` → `GameTypes.id`
+- `Games.rotation_id` → `Rotations.id`

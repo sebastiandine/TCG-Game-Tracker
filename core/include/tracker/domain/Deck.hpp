@@ -15,6 +15,7 @@ struct Deck {
     std::string  name;
     std::string  variant;
     std::string  variantNote;
+    std::int64_t rotationId{0};  // 0 for a non-rotating format
 
     friend bool operator==(const Deck&, const Deck&) = default;
 };

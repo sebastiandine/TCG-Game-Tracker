@@ -16,13 +16,15 @@ namespace tracker::ui {
 class RenameDeckDialog : public wxDialog {
 public:
     RenameDeckDialog(wxWindow* parent, DeckService& decks,
-                     std::int64_t formatId, const std::string& currentName);
+                     std::int64_t formatId, std::int64_t rotationId,
+                     const std::string& currentName);
 
 private:
     void onOk(wxCommandEvent&);
 
     DeckService& decks_;
     std::int64_t formatId_{0};
+    std::int64_t rotationId_{0};
     std::string currentName_;
     wxTextCtrl* nameCtrl_{nullptr};
 };
