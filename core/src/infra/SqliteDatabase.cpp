@@ -9,6 +9,25 @@ namespace tracker {
 
 namespace {
 
+bool columnIsNotNull(sqlite3* db, const char* table, const char* column) {
+    const std::string sql = std::string("PRAGMA table_info(") + table + ");";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    bool required = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* name =
+            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (name != nullptr && std::strcmp(name, column) == 0) {
+            required = sqlite3_column_int(stmt, 3) != 0;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return required;
+}
+
 bool columnExists(sqlite3* db, const char* table, const char* column) {
     const std::string sql = std::string("PRAGMA table_info(") + table + ");";
     sqlite3_stmt* stmt = nullptr;
@@ -136,6 +155,65 @@ Result<void> attachLegacyRowsToMagic(sqlite3* db) {
                    "Failed to enable foreign keys: ");
 }
 
+// Older Rotations tables require an end month. SQLite cannot drop NOT NULL
+// or rewrite CHECK in place, so copy the rows into a table that allows both
+// end columns to be null together.
+Result<void> relaxRotationEndColumns(sqlite3* db) {
+    if (!tableExists(db, "Rotations") ||
+        !columnIsNotNull(db, "Rotations", "end_year")) {
+        return Result<void>::ok();
+    }
+
+    auto fkOff = execSql(db, "PRAGMA foreign_keys = OFF;",
+                         "Failed to disable foreign keys: ");
+    if (!fkOff) return fkOff;
+    auto begin = execSql(db, "BEGIN;", "Database migration failed: ");
+    if (!begin) {
+        execSql(db, "PRAGMA foreign_keys = ON;", "");
+        return begin;
+    }
+
+    auto rebuilt = execSql(
+        db,
+        "CREATE TABLE Rotations_new ("
+        "  id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  format_id       INTEGER NOT NULL,"
+        "  name            TEXT    NOT NULL COLLATE NOCASE,"
+        "  start_year      INTEGER NOT NULL,"
+        "  start_month     INTEGER NOT NULL,"
+        "  end_year        INTEGER,"
+        "  end_month       INTEGER,"
+        "  expiry_prompted INTEGER NOT NULL DEFAULT 0,"
+        "  FOREIGN KEY (format_id) REFERENCES Formats(id),"
+        "  UNIQUE (format_id, name),"
+        "  CHECK (start_month BETWEEN 1 AND 12),"
+        "  CHECK ((end_year IS NULL) = (end_month IS NULL)),"
+        "  CHECK (end_month IS NULL OR end_month BETWEEN 1 AND 12),"
+        "  CHECK (end_year IS NULL OR"
+        "         end_year * 12 + end_month >= start_year * 12 + start_month)"
+        ");"
+        "INSERT INTO Rotations_new (id, format_id, name, start_year, start_month,"
+        " end_year, end_month, expiry_prompted) "
+        "SELECT id, format_id, name, start_year, start_month, end_year, end_month,"
+        " expiry_prompted FROM Rotations;"
+        "DROP TABLE Rotations;"
+        "ALTER TABLE Rotations_new RENAME TO Rotations;",
+        "Database migration failed: ");
+    if (!rebuilt) {
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        execSql(db, "PRAGMA foreign_keys = ON;", "");
+        return rebuilt;
+    }
+    auto commit = execSql(db, "COMMIT;", "Database migration failed: ");
+    if (!commit) {
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        execSql(db, "PRAGMA foreign_keys = ON;", "");
+        return commit;
+    }
+    return execSql(db, "PRAGMA foreign_keys = ON;",
+                   "Failed to enable foreign keys: ");
+}
+
 // Adds rotating-format columns and the Rotations table. Existing decks are
 // rebuilt so uniqueness is per rotation (or per format when rotation_id is
 // null) instead of a single table-level UNIQUE.
@@ -157,14 +235,16 @@ Result<void> applyRotationSchema(sqlite3* db) {
         "  name            TEXT    NOT NULL COLLATE NOCASE,"
         "  start_year      INTEGER NOT NULL,"
         "  start_month     INTEGER NOT NULL,"
-        "  end_year        INTEGER NOT NULL,"
-        "  end_month       INTEGER NOT NULL,"
+        "  end_year        INTEGER,"
+        "  end_month       INTEGER,"
         "  expiry_prompted INTEGER NOT NULL DEFAULT 0,"
         "  FOREIGN KEY (format_id) REFERENCES Formats(id),"
         "  UNIQUE (format_id, name),"
         "  CHECK (start_month BETWEEN 1 AND 12),"
-        "  CHECK (end_month BETWEEN 1 AND 12),"
-        "  CHECK (end_year * 12 + end_month >= start_year * 12 + start_month)"
+        "  CHECK ((end_year IS NULL) = (end_month IS NULL)),"
+        "  CHECK (end_month IS NULL OR end_month BETWEEN 1 AND 12),"
+        "  CHECK (end_year IS NULL OR"
+        "         end_year * 12 + end_month >= start_year * 12 + start_month)"
         ");",
         "Database migration failed: ");
     if (!rotations) return rotations;
@@ -233,7 +313,7 @@ Result<void> applyRotationSchema(sqlite3* db) {
         "  ON Games (rotation_id, played_on DESC, id DESC);",
         "Database migration failed: ");
     if (!indexes) return indexes;
-    return Result<void>::ok();
+    return relaxRotationEndColumns(db);
 }
 
 }  // namespace
@@ -302,14 +382,16 @@ Result<void> SqliteDatabase::migrate() {
         "  name            TEXT    NOT NULL COLLATE NOCASE,"
         "  start_year      INTEGER NOT NULL,"
         "  start_month     INTEGER NOT NULL,"
-        "  end_year        INTEGER NOT NULL,"
-        "  end_month       INTEGER NOT NULL,"
+        "  end_year        INTEGER,"
+        "  end_month       INTEGER,"
         "  expiry_prompted INTEGER NOT NULL DEFAULT 0,"
         "  FOREIGN KEY (format_id) REFERENCES Formats(id),"
         "  UNIQUE (format_id, name),"
         "  CHECK (start_month BETWEEN 1 AND 12),"
-        "  CHECK (end_month BETWEEN 1 AND 12),"
-        "  CHECK (end_year * 12 + end_month >= start_year * 12 + start_month)"
+        "  CHECK ((end_year IS NULL) = (end_month IS NULL)),"
+        "  CHECK (end_month IS NULL OR end_month BETWEEN 1 AND 12),"
+        "  CHECK (end_year IS NULL OR"
+        "         end_year * 12 + end_month >= start_year * 12 + start_month)"
         ");"
 
         "CREATE TABLE IF NOT EXISTS DeckArchetypes ("

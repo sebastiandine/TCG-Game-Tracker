@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <optional>
 #include <vector>
 
 namespace tracker::testing {
@@ -16,8 +17,8 @@ public:
                             const std::string& name,
                             int startYear,
                             int startMonth,
-                            int endYear,
-                            int endMonth) override {
+                            std::optional<int> endYear,
+                            std::optional<int> endMonth) override {
         for (const auto& rotation : rotations_) {
             if (rotation.formatId == formatId &&
                 equalsIgnoreCase(rotation.name, name)) {
@@ -40,6 +41,43 @@ public:
         rotation.endMonth = endMonth;
         rotations_.push_back(rotation);
         return Result<Rotation>::ok(rotation);
+    }
+
+    Result<Rotation> update(std::int64_t rotationId,
+                            const std::string& name,
+                            int startYear,
+                            int startMonth,
+                            std::optional<int> endYear,
+                            std::optional<int> endMonth) override {
+        Rotation* target = nullptr;
+        for (auto& rotation : rotations_) {
+            if (rotation.id == rotationId) target = &rotation;
+        }
+        if (target == nullptr) {
+            return Result<Rotation>::err("Rotation not found.");
+        }
+        for (const auto& rotation : rotations_) {
+            if (rotation.id != rotationId &&
+                rotation.formatId == target->formatId &&
+                equalsIgnoreCase(rotation.name, name)) {
+                return Result<Rotation>::err(
+                    "A rotation named \"" + name + "\" already exists.");
+            }
+        }
+        if (const char* error =
+                rotationSpanError(startYear, startMonth, endYear, endMonth)) {
+            return Result<Rotation>::err(error);
+        }
+
+        const bool endChanged =
+            target->endYear != endYear || target->endMonth != endMonth;
+        target->name = name;
+        target->startYear = startYear;
+        target->startMonth = startMonth;
+        target->endYear = endYear;
+        target->endMonth = endMonth;
+        if (endChanged) target->expiryPrompted = false;
+        return Result<Rotation>::ok(*target);
     }
 
     Result<std::vector<Rotation>> listByFormat(std::int64_t formatId) override {

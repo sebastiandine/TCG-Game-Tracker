@@ -2,7 +2,10 @@
 #include "tracker/ui/RotationFields.hpp"
 #include "tracker/ui/Theme.hpp"
 
+#include <optional>
+
 #include <wx/button.h>
+#include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
@@ -36,18 +39,49 @@ CreateRotationDialog::CreateRotationDialog(wxWindow* parent, FormatService& form
                wxDEFAULT_DIALOG_STYLE),
       formats_(formats),
       formatId_(formatId) {
+    build("", startYear, startMonth, startYear, startMonth, false);
+}
+
+CreateRotationDialog::CreateRotationDialog(wxWindow* parent, FormatService& formats,
+                                           const Rotation& existing)
+    : wxDialog(parent, wxID_ANY, "Edit Rotation",
+               wxDefaultPosition, wxDefaultSize,
+               wxDEFAULT_DIALOG_STYLE),
+      formats_(formats),
+      formatId_(existing.formatId),
+      rotationId_(existing.id),
+      editing_(true) {
+    const bool unknown = !existing.endYear || !existing.endMonth;
+    build(wxString::FromUTF8(existing.name.c_str()),
+          existing.startYear, existing.startMonth,
+          existing.endYear.value_or(existing.startYear),
+          existing.endMonth.value_or(existing.startMonth),
+          unknown);
+}
+
+void CreateRotationDialog::build(const wxString& name, int startYear,
+                                 int startMonth, int endYear, int endMonth,
+                                 bool endUnknown) {
     auto* root = new wxBoxSizer(wxVERTICAL);
 
     auto* nameRow = new wxBoxSizer(wxHORIZONTAL);
     nameRow->Add(new wxStaticText(this, wxID_ANY, "Rotation name:"),
                  0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-    nameCtrl_ = new wxTextCtrl(this, wxID_ANY);
+    nameCtrl_ = new wxTextCtrl(this, wxID_ANY, name);
     nameRow->Add(nameCtrl_, 1, wxEXPAND);
     root->Add(nameRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 10);
 
     addSpanRow(this, root, "Start:", startMonth_, startYear_, startYear,
                startMonth);
-    addSpanRow(this, root, "End:", endMonth_, endYear_, startYear, startMonth);
+    addSpanRow(this, root, "End:", endMonth_, endYear_, endYear, endMonth);
+
+    endUnknown_ = new wxCheckBox(this, wxID_ANY, "End unknown");
+    endUnknown_->SetValue(endUnknown);
+    endMonth_->Enable(!endUnknown);
+    endYear_->Enable(!endUnknown);
+    root->Add(endUnknown_, 0, wxLEFT | wxRIGHT | wxTOP, 10);
+    endUnknown_->Bind(wxEVT_CHECKBOX, &CreateRotationDialog::onToggleEndUnknown,
+                      this);
 
     auto* btns = CreateButtonSizer(wxOK | wxCANCEL);
     if (btns) root->Add(btns, 0, wxALL | wxEXPAND, 10);
@@ -58,13 +92,28 @@ CreateRotationDialog::CreateRotationDialog(wxWindow* parent, FormatService& form
     CentreOnParent();
 }
 
+void CreateRotationDialog::onToggleEndUnknown(wxCommandEvent&) {
+    const bool known = !endUnknown_->GetValue();
+    endMonth_->Enable(known);
+    endYear_->Enable(known);
+}
+
 void CreateRotationDialog::onOk(wxCommandEvent&) {
     const std::string name = nameCtrl_->GetValue().ToStdString(wxConvUTF8);
     const int startMonth = startMonth_->GetSelection() + 1;
-    const int endMonth = endMonth_->GetSelection() + 1;
-    auto result = formats_.createRotation(
-        formatId_, name, startYear_->GetValue(), startMonth,
-        endYear_->GetValue(), endMonth);
+    std::optional<int> endYear;
+    std::optional<int> endMonth;
+    if (!endUnknown_->GetValue()) {
+        endYear = endYear_->GetValue();
+        endMonth = endMonth_->GetSelection() + 1;
+    }
+    auto result = editing_
+        ? formats_.updateRotation(
+              formatId_, rotationId_, name, startYear_->GetValue(), startMonth,
+              endYear, endMonth)
+        : formats_.createRotation(
+              formatId_, name, startYear_->GetValue(), startMonth,
+              endYear, endMonth);
     if (!result) {
         showThemedMessageDialog(this,
             wxString::FromUTF8(result.error().c_str()),

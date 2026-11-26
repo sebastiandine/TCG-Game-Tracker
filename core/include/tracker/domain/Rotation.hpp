@@ -16,38 +16,54 @@ struct Rotation {
     std::string  name;
     int          startYear{0};
     int          startMonth{0};  // 1-12
-    int          endYear{0};
-    int          endMonth{0};    // 1-12
+    // Both unset when the end is unknown. Never one without the other.
+    std::optional<int> endYear;
+    std::optional<int> endMonth;  // 1-12 when set
     bool         expiryPrompted{false};
 
     friend bool operator==(const Rotation&, const Rotation&) = default;
 };
 
-// nullptr when the span is usable (months 1-12, years 1-9999, end not before start).
-[[nodiscard]] inline const char* rotationSpanError(int startYear, int startMonth,
-                                                   int endYear, int endMonth) {
-    if (startMonth < 1 || startMonth > 12 || endMonth < 1 || endMonth > 12) {
+// nullptr when the span is usable. An unknown end (both unset) is usable.
+// Months are 1-12, years are 1-9999, and a known end is not before the start.
+[[nodiscard]] inline const char* rotationSpanError(
+        int startYear, int startMonth,
+        std::optional<int> endYear, std::optional<int> endMonth) {
+    if (startMonth < 1 || startMonth > 12) {
         return "Rotation month must be from 1 to 12.";
     }
-    if (startYear < 1 || startYear > 9999 || endYear < 1 || endYear > 9999) {
+    if (startYear < 1 || startYear > 9999) {
         return "Rotation year is out of range.";
     }
-    if ((endYear * 12 + endMonth) < (startYear * 12 + startMonth)) {
+    if (endYear.has_value() != endMonth.has_value()) {
+        return "Rotation end month and year must both be set or both be unknown.";
+    }
+    if (!endYear) return nullptr;
+    if (*endMonth < 1 || *endMonth > 12) {
+        return "Rotation month must be from 1 to 12.";
+    }
+    if (*endYear < 1 || *endYear > 9999) {
+        return "Rotation year is out of range.";
+    }
+    if ((*endYear * 12 + *endMonth) < (startYear * 12 + startMonth)) {
         return "Rotation end is before the start.";
     }
     return nullptr;
 }
 
 [[nodiscard]] inline bool rotationSpanValid(int startYear, int startMonth,
-                                            int endYear, int endMonth) {
+                                            std::optional<int> endYear,
+                                            std::optional<int> endMonth) {
     return rotationSpanError(startYear, startMonth, endYear, endMonth) == nullptr;
 }
 
 // True once `year`/`month` is strictly after the rotation's end month.
+// An unknown end has not ended.
 [[nodiscard]] inline bool rotationEnded(const Rotation& rotation, int year,
                                         int month) {
+    if (!rotation.endYear || !rotation.endMonth) return false;
     return (year * 12 + month) >
-           (rotation.endYear * 12 + rotation.endMonth);
+           (*rotation.endYear * 12 + *rotation.endMonth);
 }
 
 // The month after `year`/`month`. December wraps to January of the next year.

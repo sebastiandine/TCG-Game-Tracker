@@ -4,6 +4,8 @@
 
 #include "tracker/ports/IRotationRepository.hpp"
 
+#include <optional>
+
 namespace tracker {
 
 class SqliteDatabase;
@@ -16,8 +18,15 @@ public:
                                           const std::string& name,
                                           int startYear,
                                           int startMonth,
-                                          int endYear,
-                                          int endMonth) override;
+                                          std::optional<int> endYear,
+                                          std::optional<int> endMonth) override;
+
+    [[nodiscard]] Result<Rotation> update(std::int64_t rotationId,
+                                          const std::string& name,
+                                          int startYear,
+                                          int startMonth,
+                                          std::optional<int> endYear,
+                                          std::optional<int> endMonth) override;
 
     [[nodiscard]] Result<std::vector<Rotation>> listByFormat(
         std::int64_t formatId) override;

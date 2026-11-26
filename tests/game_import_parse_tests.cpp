@@ -251,6 +251,24 @@ TEST_SUITE("GameImportParse") {
         CHECK(mapped.value().rows[0].score == MatchScore::TwoOne);
     }
 
+    TEST_CASE("mapGameImportTable accepts single-game scores") {
+        auto mapped = mapGameImportTable({
+            {"Date", "Deck", "Opponent", "Result", "Event"},
+            {"2026-01-06", "A", "B", "1-0", "FNM"},
+            {"2026-01-07", "A", "B", "0-0", "FNM"},
+            {"2026-01-08", "A", "B", "0-1", "FNM"},
+        });
+        REQUIRE(mapped.isOk());
+        REQUIRE(mapped.value().rows.size() == 3);
+        CHECK(mapped.value().issues.empty());
+        CHECK(mapped.value().rows[0].score == MatchScore::OneZero);
+        CHECK(mapped.value().rows[0].result == MatchResult::Win);
+        CHECK(mapped.value().rows[1].score == MatchScore::ZeroZero);
+        CHECK(mapped.value().rows[1].result == MatchResult::Draw);
+        CHECK(mapped.value().rows[2].score == MatchScore::ZeroOne);
+        CHECK(mapped.value().rows[2].result == MatchResult::Loss);
+    }
+
     TEST_CASE("parseXlsx reads shared strings numbers and booleans") {
         const std::string sst =
             "<si><t>Date</t></si>"

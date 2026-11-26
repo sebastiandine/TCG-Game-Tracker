@@ -6,6 +6,7 @@
 #include "tracker/infra/SqliteGameRepository.hpp"
 #include "tracker/infra/SqliteGameTitleRepository.hpp"
 #include "tracker/infra/SqliteGameTypeRepository.hpp"
+#include "tracker/infra/SqliteRotationRepository.hpp"
 
 #include <sqlite3.h>
 
@@ -248,5 +249,70 @@ TEST_SUITE("Sqlite schema migration") {
         CHECK(listedGames.value()[0].id == 1);
         CHECK(listedGames.value()[0].rotationId == 0);
         CHECK(listedGames.value()[0].playedOn == "2024-01-02");
+    }
+
+    TEST_CASE("required rotation ends become nullable and keep existing rows") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+
+        SqliteGameTitleRepository titles(db);
+        auto title = titles.create("Magic: The Gathering");
+        REQUIRE(title.isOk());
+        SqliteFormatRepository formats(db);
+        auto format = formats.create(title.value().id, "Standard", true);
+        REQUIRE(format.isOk());
+
+        REQUIRE(execSql(db.handle(), "PRAGMA foreign_keys = OFF;").isOk());
+        const std::string seed =
+            "DROP TABLE Rotations;"
+            "CREATE TABLE Rotations ("
+            "  id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  format_id       INTEGER NOT NULL,"
+            "  name            TEXT    NOT NULL COLLATE NOCASE,"
+            "  start_year      INTEGER NOT NULL,"
+            "  start_month     INTEGER NOT NULL,"
+            "  end_year        INTEGER NOT NULL,"
+            "  end_month       INTEGER NOT NULL,"
+            "  expiry_prompted INTEGER NOT NULL DEFAULT 0,"
+            "  FOREIGN KEY (format_id) REFERENCES Formats(id),"
+            "  UNIQUE (format_id, name),"
+            "  CHECK (start_month BETWEEN 1 AND 12),"
+            "  CHECK (end_month BETWEEN 1 AND 12),"
+            "  CHECK (end_year * 12 + end_month >= start_year * 12 + start_month)"
+            ");"
+            "INSERT INTO Rotations (id, format_id, name, start_year, start_month,"
+            " end_year, end_month, expiry_prompted) VALUES (7, " +
+            std::to_string(format.value().id) +
+            ", 'Bloomburrow', 2024, 7, 2024, 10, 1);";
+        REQUIRE(execSql(db.handle(), seed.c_str()).isOk());
+        REQUIRE(execSql(db.handle(), "PRAGMA foreign_keys = ON;").isOk());
+
+        REQUIRE(db.migrate().isOk());
+        REQUIRE(db.migrate().isOk());
+
+        SqliteRotationRepository rotations(db);
+        auto listed = rotations.listByFormat(format.value().id);
+        REQUIRE(listed.isOk());
+        REQUIRE(listed.value().size() == 1);
+        CHECK(listed.value()[0].id == 7);
+        CHECK(listed.value()[0].name == "Bloomburrow");
+        CHECK(listed.value()[0].startYear == 2024);
+        CHECK(listed.value()[0].startMonth == 7);
+        CHECK(listed.value()[0].endYear == 2024);
+        CHECK(listed.value()[0].endMonth == 10);
+        CHECK(listed.value()[0].expiryPrompted);
+
+        auto open = rotations.create(format.value().id, "Current",
+                                     2025, 1, std::nullopt, std::nullopt);
+        REQUIRE(open.isOk());
+        CHECK_FALSE(open.value().endYear.has_value());
+        CHECK_FALSE(open.value().endMonth.has_value());
+        CHECK_FALSE(rotationEnded(open.value(), 2026, 11));
+
+        auto again = rotations.listByFormat(format.value().id);
+        REQUIRE(again.isOk());
+        REQUIRE(again.value().size() == 2);
+        CHECK(again.value()[0].id == 7);
+        CHECK_FALSE(again.value()[1].endMonth.has_value());
     }
 }

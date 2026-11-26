@@ -137,11 +137,14 @@ void from_json(const nlohmann::json& j, MatchResult& v) {
 
 std::string_view to_string(MatchScore s) noexcept {
     switch (s) {
-        case MatchScore::TwoOne:  return "2-1";
-        case MatchScore::TwoZero: return "2-0";
-        case MatchScore::OneTwo:  return "1-2";
-        case MatchScore::ZeroTwo: return "0-2";
-        case MatchScore::OneOne:  return "1-1";
+        case MatchScore::TwoOne:   return "2-1";
+        case MatchScore::TwoZero:  return "2-0";
+        case MatchScore::OneZero:  return "1-0";
+        case MatchScore::OneTwo:   return "1-2";
+        case MatchScore::ZeroTwo:  return "0-2";
+        case MatchScore::ZeroOne:  return "0-1";
+        case MatchScore::OneOne:   return "1-1";
+        case MatchScore::ZeroZero: return "0-0";
     }
     return "2-1";
 }
@@ -149,17 +152,20 @@ std::string_view to_string(MatchScore s) noexcept {
 std::optional<MatchScore> matchScoreFromString(std::string_view s) noexcept {
     if (s == "2-1") return MatchScore::TwoOne;
     if (s == "2-0") return MatchScore::TwoZero;
+    if (s == "1-0") return MatchScore::OneZero;
     if (s == "1-2") return MatchScore::OneTwo;
     if (s == "0-2") return MatchScore::ZeroTwo;
+    if (s == "0-1") return MatchScore::ZeroOne;
     if (s == "1-1") return MatchScore::OneOne;
+    if (s == "0-0") return MatchScore::ZeroZero;
     return std::nullopt;
 }
 
-const std::array<MatchScore, 5>& allMatchScores() noexcept {
-    static constexpr std::array<MatchScore, 5> v{
-        MatchScore::TwoOne, MatchScore::TwoZero,
-        MatchScore::OneTwo, MatchScore::ZeroTwo,
-        MatchScore::OneOne};
+const std::array<MatchScore, 8>& allMatchScores() noexcept {
+    static constexpr std::array<MatchScore, 8> v{
+        MatchScore::TwoOne, MatchScore::TwoZero, MatchScore::OneZero,
+        MatchScore::OneTwo, MatchScore::ZeroTwo, MatchScore::ZeroOne,
+        MatchScore::OneOne, MatchScore::ZeroZero};
     return v;
 }
 
@@ -167,11 +173,14 @@ MatchResult resultForScore(MatchScore s) noexcept {
     switch (s) {
         case MatchScore::TwoOne:
         case MatchScore::TwoZero:
+        case MatchScore::OneZero:
             return MatchResult::Win;
         case MatchScore::OneTwo:
         case MatchScore::ZeroTwo:
+        case MatchScore::ZeroOne:
             return MatchResult::Loss;
         case MatchScore::OneOne:
+        case MatchScore::ZeroZero:
             return MatchResult::Draw;
     }
     return MatchResult::Win;

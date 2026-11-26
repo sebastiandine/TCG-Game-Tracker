@@ -33,6 +33,7 @@ public:
 
 private:
     void onToggleRotating(wxCommandEvent&);
+    void onToggleEndUnknown(wxCommandEvent&);
     void onOk(wxCommandEvent&);
 
     FormatService& formats_;
@@ -45,6 +46,7 @@ private:
     wxSpinCtrl* startYear_{nullptr};
     wxChoice*   endMonth_{nullptr};
     wxSpinCtrl* endYear_{nullptr};
+    wxCheckBox* endUnknown_{nullptr};
     Format created_;
     Rotation createdRotation_;
 };

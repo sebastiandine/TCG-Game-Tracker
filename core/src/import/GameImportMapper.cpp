@@ -206,7 +206,7 @@ Result<GameImportParseResult> mapGameImportTable(
             normalizeScore(cellAt(cells[r], colResult)));
         if (!score) {
             out.issues.push_back(
-                {line, "Result must be one of 2-0, 2-1, 1-2, 0-2, 1-1."});
+                {line, "Result must be one of 2-0, 2-1, 1-0, 1-2, 0-2, 0-1, 1-1, 0-0."});
             continue;
         }
         row.score = *score;
