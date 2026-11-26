@@ -212,4 +212,111 @@ TEST_SUITE("FormatService") {
         REQUIRE(listed.isOk());
         CHECK(listed.value()[0].expiryPrompted);
     }
+
+    TEST_CASE("rotation end may be unknown and can be edited later") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.createRotating(1, "Standard", " Current ",
+                                          2025, 1, std::nullopt, std::nullopt);
+        REQUIRE(created.isOk());
+        CHECK_FALSE(created.value().rotation.endYear.has_value());
+        CHECK_FALSE(created.value().rotation.endMonth.has_value());
+        CHECK_FALSE(rotationEnded(created.value().rotation, 2026, 6));
+
+        const auto formatId = created.value().format.id;
+        const auto rotationId = created.value().rotation.id;
+        auto updated = svc.updateRotation(formatId, rotationId, "Current",
+                                          2025, 1, 2025, 9);
+        REQUIRE(updated.isOk());
+        CHECK(updated.value().endYear == 2025);
+        CHECK(updated.value().endMonth == 9);
+        CHECK(rotationEnded(updated.value(), 2025, 10));
+        CHECK_FALSE(rotationEnded(updated.value(), 2025, 9));
+
+        auto cleared = svc.updateRotation(formatId, rotationId, " Renamed ",
+                                          2025, 2, std::nullopt, std::nullopt);
+        REQUIRE(cleared.isOk());
+        CHECK(cleared.value().name == "Renamed");
+        CHECK(cleared.value().startMonth == 2);
+        CHECK_FALSE(cleared.value().endYear.has_value());
+        CHECK_FALSE(rotationEnded(cleared.value(), 2030, 1));
+    }
+
+    TEST_CASE("update rotation rejects a duplicate name and an inverted span") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.createRotating(1, "Standard", "First",
+                                          2024, 1, 2024, 3);
+        REQUIRE(created.isOk());
+        auto second = svc.createRotation(created.value().format.id, "Second",
+                                         2024, 4, 2024, 6);
+        REQUIRE(second.isOk());
+
+        auto duplicate = svc.updateRotation(
+            created.value().format.id, second.value().id, "first",
+            2024, 4, 2024, 6);
+        CHECK(duplicate.isErr());
+        CHECK(duplicate.error() == "A rotation named \"first\" already exists.");
+
+        auto inverted = svc.updateRotation(
+            created.value().format.id, second.value().id, "Second",
+            2024, 8, 2024, 4);
+        CHECK(inverted.isErr());
+        CHECK(inverted.error() == "Rotation end is before the start.");
+
+        auto half = svc.createRotation(created.value().format.id, "Half",
+                                       2024, 7, 2024, std::nullopt);
+        CHECK(half.isErr());
+        CHECK(half.error() ==
+              "Rotation end month and year must both be set or both be unknown.");
+    }
+
+    TEST_CASE("changing the end clears the expiry prompt") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.createRotating(1, "Standard", "First",
+                                          2024, 1, 2024, 3);
+        REQUIRE(created.isOk());
+        const auto formatId = created.value().format.id;
+        const auto rotationId = created.value().rotation.id;
+        REQUIRE(svc.markExpiryPrompted(rotationId).isOk());
+
+        auto renamed = svc.updateRotation(formatId, rotationId, "Opening",
+                                          2024, 1, 2024, 3);
+        REQUIRE(renamed.isOk());
+        CHECK(renamed.value().expiryPrompted);
+
+        auto extended = svc.updateRotation(formatId, rotationId, "Opening",
+                                           2024, 1, 2024, 6);
+        REQUIRE(extended.isOk());
+        CHECK_FALSE(extended.value().expiryPrompted);
+    }
+
+    TEST_CASE("update rotation rejects a missing row and a non-rotating format") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto format = svc.create(1, "Commander");
+        REQUIRE(format.isOk());
+        auto blocked = svc.updateRotation(format.value().id, 1, "Nope",
+                                          2024, 1, 2024, 2);
+        CHECK(blocked.isErr());
+        CHECK(blocked.error() ==
+              "Rotations can only be changed on a rotating format.");
+
+        auto created = svc.createRotating(1, "Standard", "First",
+                                          2024, 1, 2024, 3);
+        REQUIRE(created.isOk());
+        auto missing = svc.updateRotation(created.value().format.id, 999, "Nope",
+                                          2024, 1, 2024, 2);
+        CHECK(missing.isErr());
+        CHECK(missing.error() == "Rotation not found.");
+    }
 }

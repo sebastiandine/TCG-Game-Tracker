@@ -64,14 +64,15 @@ CREATE TABLE Rotations (
   name            TEXT    NOT NULL COLLATE NOCASE,
   start_year      INTEGER NOT NULL,
   start_month     INTEGER NOT NULL,
-  end_year        INTEGER NOT NULL,
-  end_month       INTEGER NOT NULL,
+  end_year        INTEGER,
+  end_month       INTEGER,
   expiry_prompted INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (format_id) REFERENCES Formats(id),
   UNIQUE (format_id, name),
   CHECK (start_month BETWEEN 1 AND 12),
-  CHECK (end_month BETWEEN 1 AND 12),
-  CHECK (end_year * 12 + end_month >= start_year * 12 + start_month)
+  CHECK ((end_year IS NULL) = (end_month IS NULL)),
+  CHECK (end_month IS NULL OR end_month BETWEEN 1 AND 12),
+  CHECK (end_year IS NULL OR end_year * 12 + end_month >= start_year * 12 + start_month)
 );
 ```
 
@@ -82,15 +83,17 @@ CREATE TABLE Rotations (
 | `name` | `TEXT` | `NOT NULL COLLATE NOCASE` | Rotation name. Unique per format, case-insensitive. |
 | `start_year` | `INTEGER` | `NOT NULL` | First year of the span. |
 | `start_month` | `INTEGER` | `NOT NULL`, 1–12 | First month of the span, inclusive. |
-| `end_year` | `INTEGER` | `NOT NULL` | Last year of the span. |
-| `end_month` | `INTEGER` | `NOT NULL`, 1–12 | Last month of the span, inclusive. Must not be before the start. |
-| `expiry_prompted` | `INTEGER` | `NOT NULL DEFAULT 0` | `1` after the app has asked once about creating a successor because this rotation ended. |
+| `end_year` | `INTEGER` | `NULL` | Last year of the span. `NULL` together with `end_month` when the end is unknown. |
+| `end_month` | `INTEGER` | `NULL`, 1–12 when set | Last month of the span, inclusive. Must not be before the start. `NULL` only when `end_year` is also `NULL`. |
+| `expiry_prompted` | `INTEGER` | `NOT NULL DEFAULT 0` | `1` after the app has asked once about creating a successor because this rotation ended. Cleared when the end month changes. |
 
 ### Notes
 
 - Listed and treated as "latest" by start year, then start month, then id.
 - Spans may overlap or leave gaps. Game dates are not required to fall inside the span.
-- The application trims whitespace and rejects empty names before insertion.
+- An unknown end (`end_year` and `end_month` both null) is not treated as ended, so the app does not prompt for a successor.
+- Existing databases whose end columns were `NOT NULL` are rebuilt in place. Row ids stay the same and the previous end months are kept.
+- The application trims whitespace and rejects empty names before insertion. Editing a rotation updates the name and span only. Decks and games stay on the same rotation id.
 
 ## DeckArchetypes
 
@@ -225,7 +228,7 @@ CREATE INDEX idx_games_rotation_date
 | `opponent_deck_id` | `INTEGER` | `NOT NULL, FK → Decks(id)` | The opponent's deck (main deck row, no variant). |
 | `opponent` | `TEXT` | `NOT NULL DEFAULT ''` | Free-text opponent name. Empty string when unknown. |
 | `result` | `TEXT` | `NOT NULL` | `"Win"`, `"Loss"`, or `"Draw"`. |
-| `score` | `TEXT` | `NOT NULL` | Game score: `"2-1"`, `"2-0"`, `"1-2"`, `"0-2"`, or `"1-1"`. |
+| `score` | `TEXT` | `NOT NULL` | Game score: `"2-1"`, `"2-0"`, `"1-0"`, `"1-2"`, `"0-2"`, `"0-1"`, `"1-1"`, or `"0-0"`. |
 | `game_type_id` | `INTEGER` | `NOT NULL, FK → GameTypes(id)` | The game type (e.g. MTGO League, FNM). |
 | `notes` | `TEXT` | `NOT NULL DEFAULT ''` | Free-text notes about the game. |
 | `rotation_id` | `INTEGER` | `NULL, FK → Rotations(id)` | The rotation this game was recorded in. Null for a non-rotating format. |

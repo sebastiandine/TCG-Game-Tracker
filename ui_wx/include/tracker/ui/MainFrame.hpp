@@ -46,6 +46,7 @@ private:
     void showWorkspace();
     void promptExpiredRotation();
     void openNewRotation(std::int64_t formatId);
+    void openEditRotation(std::int64_t formatId, std::int64_t rotationId);
 
     wxStaticText* addMenuLabel(wxSizer* sizer, const wxString& text, int border,
                                void (MainFrame::*handler)());
@@ -89,6 +90,7 @@ private:
         std::int64_t formatId{0};
         std::int64_t rotationId{0};
         bool newRotation{false};
+        bool editRotation{false};
     };
     std::vector<FormatMenuEntry> formatMenuEntries_;
     std::int64_t selectedGameId_{0};

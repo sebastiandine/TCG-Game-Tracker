@@ -36,8 +36,8 @@ Result<CreatedRotatingFormat> FormatService::createRotating(
         const std::string& rotationName,
         int startYear,
         int startMonth,
-        int endYear,
-        int endMonth) {
+        std::optional<int> endYear,
+        std::optional<int> endMonth) {
     if (gameId <= 0) {
         return Result<CreatedRotatingFormat>::err("No game selected.");
     }
@@ -79,8 +79,8 @@ Result<Rotation> FormatService::createRotation(
         const std::string& name,
         int startYear,
         int startMonth,
-        int endYear,
-        int endMonth) {
+        std::optional<int> endYear,
+        std::optional<int> endMonth) {
     if (formatId <= 0) {
         return Result<Rotation>::err("No format selected.");
     }
@@ -97,6 +97,46 @@ Result<Rotation> FormatService::createRotation(
         return Result<Rotation>::err(spanError);
     }
     return rotations_.create(formatId, trimmed.value(), startYear, startMonth,
+                             endYear, endMonth);
+}
+
+Result<Rotation> FormatService::updateRotation(
+        std::int64_t formatId,
+        std::int64_t rotationId,
+        const std::string& name,
+        int startYear,
+        int startMonth,
+        std::optional<int> endYear,
+        std::optional<int> endMonth) {
+    if (formatId <= 0) {
+        return Result<Rotation>::err("No format selected.");
+    }
+    if (rotationId <= 0) {
+        return Result<Rotation>::err("Rotation not found.");
+    }
+    auto trimmed = trimmedName(name, "Rotation name must not be empty.");
+    if (!trimmed) return Result<Rotation>::err(trimmed.error());
+    if (const char* spanError =
+            rotationSpanError(startYear, startMonth, endYear, endMonth)) {
+        return Result<Rotation>::err(spanError);
+    }
+    auto format = formats_.findById(formatId);
+    if (!format) return Result<Rotation>::err(format.error());
+    if (!format.value().rotating) {
+        return Result<Rotation>::err(
+            "Rotations can only be changed on a rotating format.");
+    }
+    auto listed = rotations_.listByFormat(formatId);
+    if (!listed) return Result<Rotation>::err(listed.error());
+    bool found = false;
+    for (const auto& rotation : listed.value()) {
+        if (rotation.id == rotationId) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) return Result<Rotation>::err("Rotation not found.");
+    return rotations_.update(rotationId, trimmed.value(), startYear, startMonth,
                              endYear, endMonth);
 }
 

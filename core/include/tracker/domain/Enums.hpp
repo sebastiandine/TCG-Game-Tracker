@@ -72,14 +72,17 @@ void from_json(const nlohmann::json& j, MatchResult& v);
 enum class MatchScore {
     TwoOne,
     TwoZero,
+    OneZero,
     OneTwo,
     ZeroTwo,
+    ZeroOne,
     OneOne,
+    ZeroZero,
 };
 
 std::string_view to_string(MatchScore s) noexcept;
 std::optional<MatchScore> matchScoreFromString(std::string_view s) noexcept;
-const std::array<MatchScore, 5>& allMatchScores() noexcept;
+const std::array<MatchScore, 8>& allMatchScores() noexcept;
 
 // Derive the most natural MatchResult from a score.
 MatchResult resultForScore(MatchScore s) noexcept;

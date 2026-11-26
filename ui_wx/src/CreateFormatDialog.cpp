@@ -2,6 +2,8 @@
 #include "tracker/ui/RotationFields.hpp"
 #include "tracker/ui/Theme.hpp"
 
+#include <optional>
+
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
@@ -66,6 +68,11 @@ CreateFormatDialog::CreateFormatDialog(wxWindow* parent, FormatService& formats,
     endRow->Add(endYear_, 0, wxEXPAND);
     rotation->Add(endRow, 0, wxEXPAND | wxTOP, 8);
 
+    endUnknown_ = new wxCheckBox(rotationPanel_, wxID_ANY, "End unknown");
+    rotation->Add(endUnknown_, 0, wxTOP, 8);
+    endUnknown_->Bind(wxEVT_CHECKBOX, &CreateFormatDialog::onToggleEndUnknown,
+                      this);
+
     rotationPanel_->SetSizer(rotation);
     root->Add(rotationPanel_, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
     root->Show(rotationPanel_, false, true);
@@ -86,15 +93,27 @@ void CreateFormatDialog::onToggleRotating(wxCommandEvent&) {
     Fit();
 }
 
+void CreateFormatDialog::onToggleEndUnknown(wxCommandEvent&) {
+    const bool known = !endUnknown_->GetValue();
+    endMonth_->Enable(known);
+    endYear_->Enable(known);
+}
+
 void CreateFormatDialog::onOk(wxCommandEvent&) {
     const std::string name = nameCtrl_->GetValue().ToStdString(wxConvUTF8);
     if (rotatingCheck_->GetValue()) {
         const std::string rotationName =
             rotationName_->GetValue().ToStdString(wxConvUTF8);
+        std::optional<int> endYear;
+        std::optional<int> endMonth;
+        if (!endUnknown_->GetValue()) {
+            endYear = endYear_->GetValue();
+            endMonth = endMonth_->GetSelection() + 1;
+        }
         auto result = formats_.createRotating(
             gameId_, name, rotationName,
             startYear_->GetValue(), startMonth_->GetSelection() + 1,
-            endYear_->GetValue(), endMonth_->GetSelection() + 1);
+            endYear, endMonth);
         if (!result) {
             showThemedMessageDialog(this,
                 wxString::FromUTF8(result.error().c_str()),

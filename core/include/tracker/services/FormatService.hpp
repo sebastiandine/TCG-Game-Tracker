@@ -10,6 +10,7 @@
 #include "tracker/util/Result.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,14 +30,15 @@ public:
                                         const std::string& name);
 
     // Create a rotating format and its first rotation together.
+    // An unknown end is both optionals empty.
     [[nodiscard]] Result<CreatedRotatingFormat> createRotating(
         std::int64_t gameId,
         const std::string& formatName,
         const std::string& rotationName,
         int startYear,
         int startMonth,
-        int endYear,
-        int endMonth);
+        std::optional<int> endYear,
+        std::optional<int> endMonth);
 
     // Add a rotation to an existing rotating format.
     [[nodiscard]] Result<Rotation> createRotation(
@@ -44,8 +46,19 @@ public:
         const std::string& name,
         int startYear,
         int startMonth,
-        int endYear,
-        int endMonth);
+        std::optional<int> endYear,
+        std::optional<int> endMonth);
+
+    // Change the name and span of a rotation on a rotating format.
+    // Changing the end clears the expiry prompt.
+    [[nodiscard]] Result<Rotation> updateRotation(
+        std::int64_t formatId,
+        std::int64_t rotationId,
+        const std::string& name,
+        int startYear,
+        int startMonth,
+        std::optional<int> endYear,
+        std::optional<int> endMonth);
 
     // Return formats for `gameId` ordered by id ascending.
     [[nodiscard]] Result<std::vector<Format>> listByGame(std::int64_t gameId);

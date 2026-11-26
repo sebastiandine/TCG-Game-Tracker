@@ -212,6 +212,33 @@ TEST_SUITE("MatchScore JSON") {
         CHECK(s == MatchScore::OneOne);
     }
 
+    TEST_CASE("1-0 round-trip") {
+        nlohmann::json j;
+        to_json(j, MatchScore::OneZero);
+        CHECK(j == "1-0");
+        MatchScore s{};
+        from_json(j, s);
+        CHECK(s == MatchScore::OneZero);
+    }
+
+    TEST_CASE("0-0 round-trip") {
+        nlohmann::json j;
+        to_json(j, MatchScore::ZeroZero);
+        CHECK(j == "0-0");
+        MatchScore s{};
+        from_json(j, s);
+        CHECK(s == MatchScore::ZeroZero);
+    }
+
+    TEST_CASE("0-1 round-trip") {
+        nlohmann::json j;
+        to_json(j, MatchScore::ZeroOne);
+        CHECK(j == "0-1");
+        MatchScore s{};
+        from_json(j, s);
+        CHECK(s == MatchScore::ZeroOne);
+    }
+
     TEST_CASE("unknown match score throws") {
         nlohmann::json j = "3-0";
         MatchScore s{};
@@ -221,8 +248,11 @@ TEST_SUITE("MatchScore JSON") {
     TEST_CASE("resultForScore maps correctly") {
         CHECK(resultForScore(MatchScore::TwoOne) == MatchResult::Win);
         CHECK(resultForScore(MatchScore::TwoZero) == MatchResult::Win);
+        CHECK(resultForScore(MatchScore::OneZero) == MatchResult::Win);
         CHECK(resultForScore(MatchScore::OneTwo) == MatchResult::Loss);
         CHECK(resultForScore(MatchScore::ZeroTwo) == MatchResult::Loss);
+        CHECK(resultForScore(MatchScore::ZeroOne) == MatchResult::Loss);
         CHECK(resultForScore(MatchScore::OneOne) == MatchResult::Draw);
+        CHECK(resultForScore(MatchScore::ZeroZero) == MatchResult::Draw);
     }
 }

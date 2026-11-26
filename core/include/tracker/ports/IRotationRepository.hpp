@@ -6,6 +6,7 @@
 #include "tracker/util/Result.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,14 +18,25 @@ public:
 
     // Create a rotation under `formatId`. Fails if the name already exists
     // in that format (case-insensitive), the span is rejected by the schema,
-    // or the format does not exist.
+    // or the format does not exist. An unknown end is both optionals empty.
     [[nodiscard]] virtual Result<Rotation> create(
         std::int64_t formatId,
         const std::string& name,
         int startYear,
         int startMonth,
-        int endYear,
-        int endMonth) = 0;
+        std::optional<int> endYear,
+        std::optional<int> endMonth) = 0;
+
+    // Replace the name and span of an existing rotation. Fails when the row
+    // is missing, the name already exists in that format, or the span is
+    // rejected. Changing the end clears expiry_prompted.
+    [[nodiscard]] virtual Result<Rotation> update(
+        std::int64_t rotationId,
+        const std::string& name,
+        int startYear,
+        int startMonth,
+        std::optional<int> endYear,
+        std::optional<int> endMonth) = 0;
 
     // Rotations for `formatId`, ordered by start year, start month, then id.
     [[nodiscard]] virtual Result<std::vector<Rotation>> listByFormat(

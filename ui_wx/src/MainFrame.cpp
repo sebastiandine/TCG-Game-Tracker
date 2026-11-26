@@ -228,7 +228,16 @@ void MainFrame::onOpenFormatsMenu() {
                 if (nextId <= IdFormatMax) {
                     sub->AppendSeparator();
                     sub->Append(nextId, "New Rotation...");
-                    formatMenuEntries_.push_back({format.id, 0, true});
+                    formatMenuEntries_.push_back({format.id, 0, true, false});
+                    ++nextId;
+                }
+                if (nextId <= IdFormatMax) {
+                    const bool canEdit = format.id == selectedFormatId_ &&
+                                         selectedRotationId_ != 0;
+                    sub->Append(nextId, "Edit Rotation...");
+                    sub->Enable(nextId, canEdit);
+                    formatMenuEntries_.push_back(
+                        {format.id, canEdit ? selectedRotationId_ : 0, false, true});
                     ++nextId;
                 }
             }
@@ -595,6 +604,10 @@ void MainFrame::onFormatSelected(wxCommandEvent& evt) {
         return;
     }
     const FormatMenuEntry entry = formatMenuEntries_[static_cast<std::size_t>(index)];
+    if (entry.editRotation) {
+        openEditRotation(entry.formatId, entry.rotationId);
+        return;
+    }
     if (entry.newRotation) {
         openNewRotation(entry.formatId);
         return;
@@ -619,8 +632,8 @@ void MainFrame::openNewRotation(std::int64_t formatId) {
     auto listed = ctx_.formats.listRotations(formatId);
     if (listed) {
         const auto latest = latestRotation(listed.value());
-        if (latest) {
-            monthAfter(latest->endYear, latest->endMonth, startYear, startMonth);
+        if (latest && latest->endYear && latest->endMonth) {
+            monthAfter(*latest->endYear, *latest->endMonth, startYear, startMonth);
         }
     }
 
@@ -629,6 +642,31 @@ void MainFrame::openNewRotation(std::int64_t formatId) {
     if (dlg.ShowModal() != wxID_OK) return;
     rebuildFormatsMenu();
     selectFormat(formatId, dlg.createdRotation().id);
+}
+
+void MainFrame::openEditRotation(std::int64_t formatId, std::int64_t rotationId) {
+    if (rotationId == 0) return;
+    auto listed = ctx_.formats.listRotations(formatId);
+    if (!listed) {
+        showThemedMessageDialog(this,
+            wxString::FromUTF8(listed.error().c_str()), "Error", wxOK);
+        return;
+    }
+    const Rotation* existing = nullptr;
+    for (const auto& rotation : listed.value()) {
+        if (rotation.id == rotationId) {
+            existing = &rotation;
+            break;
+        }
+    }
+    if (existing == nullptr) return;
+
+    CreateRotationDialog dlg(this, ctx_.formats, *existing);
+    themeModalDialog(&dlg, ctx_.config.current().theme);
+    if (dlg.ShowModal() != wxID_OK) return;
+    rebuildFormatsMenu();
+    selectFormat(formatId, dlg.createdRotation().id);
+    promptExpiredRotation();
 }
 
 void MainFrame::promptExpiredRotation() {
@@ -655,8 +693,8 @@ void MainFrame::promptExpiredRotation() {
     const wxString message = wxString::Format(
         "The rotation \"%s\" ended in %s %d. Create a new rotation and make it active?",
         wxString::FromUTF8(latest->name.c_str()),
-        monthLabel(latest->endMonth),
-        latest->endYear);
+        monthLabel(*latest->endMonth),
+        *latest->endYear);
     const bool yes = showThemedConfirmDialog(
                          this, message, "Rotation ended") == wxID_YES;
     const std::int64_t promptedId = latest->id;
@@ -669,9 +707,9 @@ void MainFrame::promptExpiredRotation() {
         return;
     }
 
-    int startYear = latest->endYear;
-    int startMonth = latest->endMonth;
-    monthAfter(latest->endYear, latest->endMonth, startYear, startMonth);
+    int startYear = *latest->endYear;
+    int startMonth = *latest->endMonth;
+    monthAfter(*latest->endYear, *latest->endMonth, startYear, startMonth);
     CreateRotationDialog dlg(this, ctx_.formats, selectedFormatId_,
                              startYear, startMonth);
     themeModalDialog(&dlg, ctx_.config.current().theme);
