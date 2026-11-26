@@ -1,5 +1,6 @@
 #include "tracker/ui/ExportGamesDialog.hpp"
 #include "tracker/ui/AppContext.hpp"
+#include "tracker/ui/RotationFields.hpp"
 #include "tracker/ui/Theme.hpp"
 #include "tracker/export/GameExportWrite.hpp"
 
@@ -41,7 +42,7 @@ wxString summarize(std::size_t n) {
 
 ExportGamesDialog::ExportGamesDialog(wxWindow* parent, AppContext& ctx)
     : wxDialog(parent, wxID_ANY, "Export Games",
-               wxDefaultPosition, wxSize(560, 200),
+               wxDefaultPosition, wxSize(560, 250),
                wxDEFAULT_DIALOG_STYLE),
       ctx_(ctx) {
     Freeze();
@@ -54,6 +55,16 @@ ExportGamesDialog::ExportGamesDialog(wxWindow* parent, AppContext& ctx)
     formatChoice_ = new wxChoice(this, wxID_ANY);
     formatRow->Add(formatChoice_, 1, wxEXPAND);
     root->Add(formatRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 10);
+    formatChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
+        refreshRotations();
+    });
+
+    auto* rotationRow = new wxBoxSizer(wxHORIZONTAL);
+    rotationLabel_ = new wxStaticText(this, wxID_ANY, "Rotation:");
+    rotationRow->Add(rotationLabel_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    rotationChoice_ = new wxChoice(this, wxID_ANY);
+    rotationRow->Add(rotationChoice_, 1, wxEXPAND);
+    root->Add(rotationRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 10);
 
     auto* typeRow = new wxBoxSizer(wxHORIZONTAL);
     typeRow->Add(new wxStaticText(this, wxID_ANY, "File type:"),
@@ -82,6 +93,7 @@ ExportGamesDialog::ExportGamesDialog(wxWindow* parent, AppContext& ctx)
             formatChoice_->SetSelection(idx);
         }
     }
+    refreshRotations();
 
     wxArrayString kinds;
     kinds.Add("CSV");
@@ -113,16 +125,26 @@ void ExportGamesDialog::onOk(wxCommandEvent&) {
 
     const int formatIdx = formatChoice_->GetSelection();
     const Format& format = formats_[static_cast<std::size_t>(formatIdx)];
+    std::int64_t rotationId = 0;
+    if (format.rotating) {
+        const int rotationIdx = rotationChoice_->GetSelection();
+        if (rotationIdx == wxNOT_FOUND ||
+            static_cast<std::size_t>(rotationIdx) >= rotations_.size()) {
+            showThemedMessageDialog(this, "Choose a rotation.", "Error", wxOK);
+            return;
+        }
+        rotationId = rotations_[static_cast<std::size_t>(rotationIdx)].id;
+    }
     const bool xlsx = fileTypeChoice_->GetSelection() == 1;
     const Theme theme = ctx_.config.current().theme;
 
-    auto games = ctx_.games.listByFormat(format.id);
+    auto games = ctx_.games.listByFormat(format.id, rotationId);
     if (!games) {
         showThemedMessageDialog(this,
             wxString::FromUTF8(games.error().c_str()), "Error", wxOK);
         return;
     }
-    auto decks = ctx_.decks.listByFormat(format.id);
+    auto decks = ctx_.decks.listByFormat(format.id, rotationId);
     if (!decks) {
         showThemedMessageDialog(this,
             wxString::FromUTF8(decks.error().c_str()), "Error", wxOK);
@@ -184,6 +206,52 @@ void ExportGamesDialog::onOk(wxCommandEvent&) {
     showThemedMessageDialog(this, summarize(rows.value().size()),
                             "Export complete", wxOK);
     EndModal(wxID_OK);
+}
+
+void ExportGamesDialog::refreshRotations() {
+    rotations_.clear();
+    if (rotationChoice_ == nullptr) return;
+    rotationChoice_->Clear();
+    const int formatIdx = formatChoice_->GetSelection();
+    const bool rotating =
+        formatIdx != wxNOT_FOUND &&
+        static_cast<std::size_t>(formatIdx) < formats_.size() &&
+        formats_[static_cast<std::size_t>(formatIdx)].rotating;
+    if (rotationLabel_ != nullptr) rotationLabel_->Show(rotating);
+    rotationChoice_->Show(rotating);
+    if (rotating) {
+        const Format& format = formats_[static_cast<std::size_t>(formatIdx)];
+        auto listed = ctx_.formats.listRotations(format.id);
+        if (listed) rotations_ = std::move(listed.value());
+        for (const auto& rotation : rotations_) {
+            rotationChoice_->Append(wxString::FromUTF8(rotation.name.c_str()));
+        }
+        int selected = -1;
+        const bool sameFormat =
+            format.id == ctx_.config.current().selectedFormatId;
+        const auto preferred = ctx_.config.current().selectedRotationId;
+        if (sameFormat) {
+            for (std::size_t i = 0; i < rotations_.size(); ++i) {
+                if (rotations_[i].id == preferred) {
+                    selected = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        if (selected < 0) {
+            const auto latest = latestRotation(rotations_);
+            if (latest) {
+                for (std::size_t i = 0; i < rotations_.size(); ++i) {
+                    if (rotations_[i].id == latest->id) {
+                        selected = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        if (selected >= 0) rotationChoice_->SetSelection(selected);
+    }
+    Layout();
 }
 
 }  // namespace tracker::ui

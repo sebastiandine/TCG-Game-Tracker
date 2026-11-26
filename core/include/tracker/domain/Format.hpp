@@ -12,6 +12,7 @@ struct Format {
     std::int64_t id{0};
     std::int64_t gameId{0};
     std::string  name;
+    bool         rotating{false};
 
     friend bool operator==(const Format&, const Format&) = default;
 };

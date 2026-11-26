@@ -32,7 +32,7 @@ class DeckStatisticsPanel : public wxPanel {
 public:
     DeckStatisticsPanel(wxWindow* parent, AppContext& ctx);
 
-    void load(std::int64_t formatId, const DeckStatsKey& key);
+    void load(std::int64_t formatId, std::int64_t rotationId, const DeckStatsKey& key);
     void applyTheme();
 
     [[nodiscard]] const std::string& title() const { return title_; }
@@ -68,6 +68,7 @@ private:
 
     AppContext& ctx_;
     std::int64_t formatId_{0};
+    std::int64_t rotationId_{0};
     DeckStatsKey key_{};
     std::string title_;
     MatchRecord overview_{};

@@ -32,7 +32,8 @@ public:
                const std::vector<GameType>& gameTypes,
                const std::optional<Game>& game,
                std::int64_t lastDeckId,
-               std::int64_t lastGameTypeId);
+               std::int64_t lastGameTypeId,
+               std::int64_t rotationId = 0);
 
     // The saved game (valid only after ShowModal() == wxID_OK).
     [[nodiscard]] const Game& savedGame() const noexcept { return saved_; }
@@ -43,6 +44,7 @@ private:
 
     AppContext& ctx_;
     std::int64_t formatId_;
+    std::int64_t rotationId_{0};
     std::vector<Deck> decks_;
     std::vector<GameType> gameTypes_;
     std::optional<Game> existing_;

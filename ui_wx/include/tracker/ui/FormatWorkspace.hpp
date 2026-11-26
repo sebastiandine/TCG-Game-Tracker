@@ -29,7 +29,7 @@ public:
     FormatWorkspace(wxWindow* parent, AppContext& ctx);
 
     // Switch to a new format: reload all tabs for the given format id.
-    void loadFormat(std::int64_t formatId);
+    void loadFormat(std::int64_t formatId, std::int64_t rotationId = 0);
 
     // Re-apply the current theme palette.
     void applyTheme();
@@ -60,6 +60,7 @@ private:
 
     AppContext& ctx_;
     std::int64_t formatId_{0};
+    std::int64_t rotationId_{0};
 
     wxScrolledWindow*           tabBar_{nullptr};
     wxSimplebook*               book_{nullptr};

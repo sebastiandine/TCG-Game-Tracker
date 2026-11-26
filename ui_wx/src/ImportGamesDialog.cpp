@@ -1,5 +1,6 @@
 #include "tracker/ui/ImportGamesDialog.hpp"
 #include "tracker/ui/AppContext.hpp"
+#include "tracker/ui/RotationFields.hpp"
 #include "tracker/ui/Theme.hpp"
 #include "tracker/domain/DeckArchetype.hpp"
 #include "tracker/import/GameImportParse.hpp"
@@ -237,7 +238,7 @@ private:
 
 ImportGamesDialog::ImportGamesDialog(wxWindow* parent, AppContext& ctx)
     : wxDialog(parent, wxID_ANY, "Import Games",
-               wxDefaultPosition, wxSize(560, 180),
+               wxDefaultPosition, wxSize(560, 230),
                wxDEFAULT_DIALOG_STYLE),
       ctx_(ctx) {
     Freeze();
@@ -260,6 +261,16 @@ ImportGamesDialog::ImportGamesDialog(wxWindow* parent, AppContext& ctx)
     formatChoice_ = new wxChoice(this, wxID_ANY);
     formatRow->Add(formatChoice_, 1, wxEXPAND);
     root->Add(formatRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 10);
+    formatChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
+        refreshRotations();
+    });
+
+    auto* rotationRow = new wxBoxSizer(wxHORIZONTAL);
+    rotationLabel_ = new wxStaticText(this, wxID_ANY, "Rotation:");
+    rotationRow->Add(rotationLabel_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    rotationChoice_ = new wxChoice(this, wxID_ANY);
+    rotationRow->Add(rotationChoice_, 1, wxEXPAND);
+    root->Add(rotationRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 10);
 
     auto formats = ctx_.formats.listByGame(ctx_.config.current().selectedGameId);
     if (formats) {
@@ -281,6 +292,7 @@ ImportGamesDialog::ImportGamesDialog(wxWindow* parent, AppContext& ctx)
             formatChoice_->SetSelection(idx);
         }
     }
+    refreshRotations();
 
     auto* btns = CreateButtonSizer(wxOK | wxCANCEL);
     if (btns) root->Add(btns, 0, wxALL | wxEXPAND, 10);
@@ -369,7 +381,22 @@ void ImportGamesDialog::onOk(wxCommandEvent&) {
     }
 
     const int formatIdx = formatChoice_->GetSelection();
-    const std::int64_t formatId = formats_[static_cast<std::size_t>(formatIdx)].id;
+    const Format& format = formats_[static_cast<std::size_t>(formatIdx)];
+    const std::int64_t formatId = format.id;
+    std::int64_t rotationId = 0;
+    if (format.rotating) {
+        const int rotationIdx = rotationChoice_->GetSelection();
+        if (rotationIdx == wxNOT_FOUND ||
+            static_cast<std::size_t>(rotationIdx) >= rotations_.size()) {
+            showThemedMessageDialog(this, "Choose a rotation.", "Error", wxOK);
+            return;
+        }
+        rotationId = rotations_[static_cast<std::size_t>(rotationIdx)].id;
+        if (!confirmOlderRotation(this, ctx_.formats, formatId, rotationId,
+                                  "Import games into it anyway?")) {
+            return;
+        }
+    }
     const Theme theme = ctx_.config.current().theme;
     const auto& rows = parsed.value().rows;
 
@@ -383,7 +410,7 @@ void ImportGamesDialog::onOk(wxCommandEvent&) {
 
     WxImportSink sink(this, theme, archetypes.value(), &progress);
     auto imported = ctx_.gameImport.import(
-        formatId, ctx_.config.current().selectedGameId, rows, sink);
+        formatId, ctx_.config.current().selectedGameId, rows, sink, rotationId);
     progress.Update(progress.GetRange());
     if (!imported) {
         showThemedMessageDialog(this,
@@ -392,10 +419,57 @@ void ImportGamesDialog::onOk(wxCommandEvent&) {
     }
 
     importedFormatId_ = formatId;
+    importedRotationId_ = rotationId;
     report_ = std::move(imported.value());
     showThemedMessageDialog(this, summarize(parsed.value(), report_),
                             "Import complete", wxOK);
     EndModal(wxID_OK);
+}
+
+void ImportGamesDialog::refreshRotations() {
+    rotations_.clear();
+    if (rotationChoice_ == nullptr) return;
+    rotationChoice_->Clear();
+    const int formatIdx = formatChoice_->GetSelection();
+    const bool rotating =
+        formatIdx != wxNOT_FOUND &&
+        static_cast<std::size_t>(formatIdx) < formats_.size() &&
+        formats_[static_cast<std::size_t>(formatIdx)].rotating;
+    if (rotationLabel_ != nullptr) rotationLabel_->Show(rotating);
+    rotationChoice_->Show(rotating);
+    if (rotating) {
+        const Format& format = formats_[static_cast<std::size_t>(formatIdx)];
+        auto listed = ctx_.formats.listRotations(format.id);
+        if (listed) rotations_ = std::move(listed.value());
+        for (const auto& rotation : rotations_) {
+            rotationChoice_->Append(wxString::FromUTF8(rotation.name.c_str()));
+        }
+        int selected = -1;
+        const bool sameFormat =
+            format.id == ctx_.config.current().selectedFormatId;
+        const auto preferred = ctx_.config.current().selectedRotationId;
+        if (sameFormat) {
+            for (std::size_t i = 0; i < rotations_.size(); ++i) {
+                if (rotations_[i].id == preferred) {
+                    selected = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        if (selected < 0) {
+            const auto latest = latestRotation(rotations_);
+            if (latest) {
+                for (std::size_t i = 0; i < rotations_.size(); ++i) {
+                    if (rotations_[i].id == latest->id) {
+                        selected = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        if (selected >= 0) rotationChoice_->SetSelection(selected);
+    }
+    Layout();
 }
 
 }  // namespace tracker::ui

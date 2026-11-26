@@ -28,7 +28,8 @@ Result<Game> GameService::create(std::int64_t formatId,
                                  MatchResult result,
                                  MatchScore score,
                                  std::int64_t gameTypeId,
-                                 const std::string& notes) {
+                                 const std::string& notes,
+                                 std::int64_t rotationId) {
     if (formatId <= 0) {
         return Result<Game>::err("No format selected.");
     }
@@ -50,7 +51,7 @@ Result<Game> GameService::create(std::int64_t formatId,
     const std::string trimmedNotes = trim(notes);
     return repo_.create(formatId, trimmedDate, deckId, opponentDeckId,
                         trimmedOpponent, result, score, gameTypeId,
-                        trimmedNotes);
+                        trimmedNotes, rotationId);
 }
 
 Result<Game> GameService::update(std::int64_t gameId,
@@ -91,8 +92,9 @@ Result<Game> GameService::clearNotes(const Game& game) {
                   game.opponent, game.result, game.score, game.gameTypeId, "");
 }
 
-Result<std::vector<Game>> GameService::listByFormat(std::int64_t formatId) {
-    return repo_.listByFormat(formatId);
+Result<std::vector<Game>> GameService::listByFormat(std::int64_t formatId,
+                                                    std::int64_t rotationId) {
+    return repo_.listByFormat(formatId, rotationId);
 }
 
 }  // namespace tracker

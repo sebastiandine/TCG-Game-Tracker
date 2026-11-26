@@ -19,7 +19,8 @@ public:
                         MatchResult result,
                         MatchScore score,
                         std::int64_t gameTypeId,
-                        const std::string& notes) override {
+                        const std::string& notes,
+                        std::int64_t rotationId = 0) override {
         Game g;
         g.id = nextId_++;
         g.formatId = formatId;
@@ -31,6 +32,7 @@ public:
         g.score = score;
         g.gameTypeId = gameTypeId;
         g.notes = notes;
+        g.rotationId = rotationId;
         games_.push_back(g);
         return Result<Game>::ok(g);
     }
@@ -60,10 +62,11 @@ public:
         return Result<Game>::err("Game not found.");
     }
 
-    Result<std::vector<Game>> listByFormat(std::int64_t formatId) override {
+    Result<std::vector<Game>> listByFormat(std::int64_t formatId,
+                                           std::int64_t rotationId = 0) override {
         std::vector<Game> result;
         for (const auto& g : games_) {
-            if (g.formatId == formatId)
+            if (g.formatId == formatId && g.rotationId == rotationId)
                 result.push_back(g);
         }
         // Newest first: sort by playedOn desc, then id desc.

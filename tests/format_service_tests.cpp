@@ -1,6 +1,8 @@
 #include <doctest/doctest.h>
 
 #include "fakes/InMemoryFormatRepository.hpp"
+#include "fakes/InMemoryRotationRepository.hpp"
+#include "tracker/domain/Rotation.hpp"
 #include "tracker/services/FormatService.hpp"
 
 using namespace tracker;
@@ -8,7 +10,8 @@ using namespace tracker;
 TEST_SUITE("FormatService") {
     TEST_CASE("create trims whitespace") {
         testing::InMemoryFormatRepository repo;
-        FormatService svc(repo);
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
 
         auto result = svc.create(1, "  Standard  ");
         REQUIRE(result.isOk());
@@ -18,7 +21,8 @@ TEST_SUITE("FormatService") {
 
     TEST_CASE("create rejects missing game") {
         testing::InMemoryFormatRepository repo;
-        FormatService svc(repo);
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
 
         auto result = svc.create(0, "Standard");
         CHECK(result.isErr());
@@ -27,7 +31,8 @@ TEST_SUITE("FormatService") {
 
     TEST_CASE("create rejects empty name") {
         testing::InMemoryFormatRepository repo;
-        FormatService svc(repo);
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
 
         auto result = svc.create(1, "");
         CHECK(result.isErr());
@@ -36,7 +41,8 @@ TEST_SUITE("FormatService") {
 
     TEST_CASE("create rejects whitespace-only name") {
         testing::InMemoryFormatRepository repo;
-        FormatService svc(repo);
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
 
         auto result = svc.create(1, "   ");
         CHECK(result.isErr());
@@ -45,7 +51,8 @@ TEST_SUITE("FormatService") {
 
     TEST_CASE("create delegates to repository") {
         testing::InMemoryFormatRepository repo;
-        FormatService svc(repo);
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
 
         auto r1 = svc.create(1, "Standard");
         REQUIRE(r1.isOk());
@@ -64,7 +71,8 @@ TEST_SUITE("FormatService") {
 
     TEST_CASE("create rejects duplicate name in the same game") {
         testing::InMemoryFormatRepository repo;
-        FormatService svc(repo);
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
 
         auto r1 = svc.create(1, "Standard");
         REQUIRE(r1.isOk());
@@ -75,7 +83,8 @@ TEST_SUITE("FormatService") {
 
     TEST_CASE("same format name is allowed in different games") {
         testing::InMemoryFormatRepository repo;
-        FormatService svc(repo);
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
 
         auto r1 = svc.create(1, "Standard");
         REQUIRE(r1.isOk());
@@ -92,5 +101,115 @@ TEST_SUITE("FormatService") {
         REQUIRE(g2.isOk());
         CHECK(g2.value().size() == 1);
         CHECK(g2.value()[0].name == "Standard");
+    }
+
+    TEST_CASE("non-rotating create stores no rotation") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.create(1, "Standard");
+        REQUIRE(created.isOk());
+        CHECK_FALSE(created.value().rotating);
+        auto listed = svc.listRotations(created.value().id);
+        REQUIRE(listed.isOk());
+        CHECK(listed.value().empty());
+    }
+
+    TEST_CASE("rotating create stores the first rotation") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.createRotating(1, " Standard ", "  Bloomburrow  ",
+                                          2024, 7, 2024, 10);
+        REQUIRE(created.isOk());
+        CHECK(created.value().format.rotating);
+        CHECK(created.value().format.name == "Standard");
+        CHECK(created.value().rotation.name == "Bloomburrow");
+        CHECK(created.value().rotation.formatId == created.value().format.id);
+        CHECK(created.value().rotation.startMonth == 7);
+        CHECK(created.value().rotation.endMonth == 10);
+
+        auto listed = svc.listRotations(created.value().format.id);
+        REQUIRE(listed.isOk());
+        REQUIRE(listed.value().size() == 1);
+        CHECK(listed.value()[0].name == "Bloomburrow");
+    }
+
+    TEST_CASE("create rotation rejects a non-rotating format") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto format = svc.create(1, "Commander");
+        REQUIRE(format.isOk());
+        auto rotation = svc.createRotation(format.value().id, "Next",
+                                           2025, 1, 2025, 3);
+        CHECK(rotation.isErr());
+        CHECK(rotation.error() ==
+              "Rotations can only be added to a rotating format.");
+    }
+
+    TEST_CASE("create rotation rejects a duplicate name and an inverted span") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.createRotating(1, "Standard", "First",
+                                          2024, 1, 2024, 3);
+        REQUIRE(created.isOk());
+        auto duplicate = svc.createRotation(created.value().format.id, "first",
+                                            2024, 4, 2024, 6);
+        CHECK(duplicate.isErr());
+        CHECK(duplicate.error() == "A rotation named \"first\" already exists.");
+
+        auto inverted = svc.createRotation(created.value().format.id, "Second",
+                                           2024, 8, 2024, 4);
+        CHECK(inverted.isErr());
+        CHECK(inverted.error() == "Rotation end is before the start.");
+    }
+
+    TEST_CASE("rotations list by start date and latest follows that order") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.createRotating(1, "Standard", "Middle",
+                                          2024, 6, 2024, 8);
+        REQUIRE(created.isOk());
+        auto early = svc.createRotation(created.value().format.id, "Early",
+                                        2024, 1, 2024, 3);
+        REQUIRE(early.isOk());
+        auto late = svc.createRotation(created.value().format.id, "Late",
+                                       2025, 1, 2025, 3);
+        REQUIRE(late.isOk());
+
+        auto listed = svc.listRotations(created.value().format.id);
+        REQUIRE(listed.isOk());
+        REQUIRE(listed.value().size() == 3);
+        CHECK(listed.value()[0].name == "Early");
+        CHECK(listed.value()[1].name == "Middle");
+        CHECK(listed.value()[2].name == "Late");
+
+        const auto latest = latestRotation(listed.value());
+        REQUIRE(latest.has_value());
+        CHECK(latest->name == "Late");
+        CHECK(rotationEnded(*latest, 2025, 4));
+        CHECK_FALSE(rotationEnded(*latest, 2025, 3));
+    }
+
+    TEST_CASE("markExpiryPrompted is remembered") {
+        testing::InMemoryFormatRepository repo;
+        testing::InMemoryRotationRepository rotations;
+        FormatService svc(repo, rotations);
+
+        auto created = svc.createRotating(1, "Standard", "First",
+                                          2024, 1, 2024, 3);
+        REQUIRE(created.isOk());
+        REQUIRE(svc.markExpiryPrompted(created.value().rotation.id).isOk());
+        auto listed = svc.listRotations(created.value().format.id);
+        REQUIRE(listed.isOk());
+        CHECK(listed.value()[0].expiryPrompted);
     }
 }

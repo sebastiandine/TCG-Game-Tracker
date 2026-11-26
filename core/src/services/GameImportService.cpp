@@ -59,7 +59,8 @@ Result<Deck> GameImportService::ensureCoreDeck(
         return Result<Deck>::err(archetype.error());
     }
 
-    auto created = decks_.create(formatId, archetype.value(), name, "", "");
+    auto created = decks_.create(formatId, archetype.value(), name, "", "",
+                                 rotationId_);
     if (!created) return created;
     ++report.decksCreated;
     deckByKey_.emplace(key, created.value());
@@ -81,7 +82,7 @@ Result<Deck> GameImportService::ensurePlayerDeck(
     if (it != deckByKey_.end()) return Result<Deck>::ok(it->second);
 
     auto created = decks_.create(formatId, core.value().archetypeId, name,
-                                 variant, "");
+                                 variant, "", rotationId_);
     if (!created) return created;
     ++report.decksCreated;
     deckByKey_.emplace(key, created.value());
@@ -120,7 +121,8 @@ Result<GameImportReport> GameImportService::import(
         std::int64_t formatId,
         std::int64_t gameId,
         const std::vector<GameImportRow>& rows,
-        IGameImportSink& sink) {
+        IGameImportSink& sink,
+        std::int64_t rotationId) {
     if (formatId <= 0) {
         return Result<GameImportReport>::err("No format selected.");
     }
@@ -128,6 +130,7 @@ Result<GameImportReport> GameImportService::import(
         return Result<GameImportReport>::err("No game selected.");
     }
 
+    rotationId_ = rotationId;
     GameImportReport report;
     deckByKey_.clear();
     gameTypeByName_.clear();
@@ -141,7 +144,7 @@ Result<GameImportReport> GameImportService::import(
     }
     archetypes_ = std::move(listedArchetypes.value());
 
-    auto existingDecks = decks_.listByFormat(formatId);
+    auto existingDecks = decks_.listByFormat(formatId, rotationId_);
     if (!existingDecks) {
         return Result<GameImportReport>::err(existingDecks.error());
     }
@@ -187,7 +190,7 @@ Result<GameImportReport> GameImportService::import(
         auto created = games_.create(formatId, row.playedOn, player.value().id,
                                      opponent.value().id, row.opponent,
                                      row.result, row.score, gameType.value().id,
-                                     row.notes);
+                                     row.notes, rotationId_);
         if (!created) {
             report.skipped.push_back({row.lineNumber, created.error()});
             continue;

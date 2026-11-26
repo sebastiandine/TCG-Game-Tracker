@@ -6,6 +6,8 @@ add_library(tracker_ui_wx STATIC
     src/MainFrame.cpp
     src/SettingsDialog.cpp
     src/CreateFormatDialog.cpp
+    src/CreateRotationDialog.cpp
+    src/RotationFields.cpp
     src/CreateGameTitleDialog.cpp
     src/CreateGameTypeDialog.cpp
     src/CreateArchetypeDialog.cpp

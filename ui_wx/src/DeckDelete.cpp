@@ -23,7 +23,7 @@ bool sameText(const std::string& a, const std::string& b) {
 }
 
 int countRelatedGames(AppContext& ctx, const Deck& deck, std::string& error) {
-    auto games = ctx.games.listByFormat(deck.formatId);
+    auto games = ctx.games.listByFormat(deck.formatId, deck.rotationId);
     if (!games) {
         error = games.error();
         return 0;
@@ -59,7 +59,7 @@ bool confirmAndDeleteDeckRow(wxWindow* parent, AppContext& ctx,
                              const Deck& deck) {
     const bool isVariant = !deck.variant.empty();
     if (!isVariant) {
-        auto listed = ctx.decks.listByFormat(deck.formatId);
+        auto listed = ctx.decks.listByFormat(deck.formatId, deck.rotationId);
         if (!listed) {
             showError(parent, listed.error());
             return false;

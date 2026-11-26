@@ -28,6 +28,7 @@ add_library(tracker_core STATIC
     src/infra/SqliteDatabase.cpp
     src/infra/SqliteGameTitleRepository.cpp
     src/infra/SqliteFormatRepository.cpp
+    src/infra/SqliteRotationRepository.cpp
     src/infra/SqliteDeckRepository.cpp
     src/infra/SqliteGameTypeRepository.cpp
     src/infra/SqliteGameRepository.cpp

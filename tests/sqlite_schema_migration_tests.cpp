@@ -141,4 +141,112 @@ TEST_SUITE("Sqlite schema migration") {
         REQUIRE(game.isOk());
         CHECK(game.value().gameTypeId == 3);
     }
+
+    TEST_CASE("pre-rotation database keeps rows and treats them as non-rotating") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+
+        REQUIRE(execSql(db.handle(), "PRAGMA foreign_keys = OFF;").isOk());
+        REQUIRE(execSql(db.handle(),
+            "DROP TABLE IF EXISTS Games;"
+            "DROP TABLE IF EXISTS Decks;"
+            "DROP TABLE IF EXISTS Rotations;"
+            "DROP TABLE IF EXISTS GameTypes;"
+            "DROP TABLE IF EXISTS Formats;"
+            "DROP TABLE IF EXISTS DeckArchetypes;"
+            "DROP TABLE IF EXISTS GameTitles;"
+        ).isOk());
+        REQUIRE(execSql(db.handle(),
+            "CREATE TABLE GameTitles ("
+            "  id   INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  name TEXT    NOT NULL UNIQUE COLLATE NOCASE"
+            ");"
+            "INSERT INTO GameTitles (name) VALUES ('Magic: The Gathering');"
+            "CREATE TABLE Formats ("
+            "  id      INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  game_id INTEGER NOT NULL,"
+            "  name    TEXT    NOT NULL COLLATE NOCASE,"
+            "  FOREIGN KEY (game_id) REFERENCES GameTitles(id),"
+            "  UNIQUE (game_id, name)"
+            ");"
+            "INSERT INTO Formats (game_id, name) VALUES (1, 'Vintage');"
+            "CREATE TABLE DeckArchetypes ("
+            "  id      INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  game_id INTEGER NOT NULL,"
+            "  name    TEXT    NOT NULL COLLATE NOCASE,"
+            "  FOREIGN KEY (game_id) REFERENCES GameTitles(id),"
+            "  UNIQUE (game_id, name)"
+            ");"
+            "INSERT INTO DeckArchetypes (game_id, name) VALUES (1, 'Control');"
+            "CREATE TABLE GameTypes ("
+            "  id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  game_id         INTEGER NOT NULL,"
+            "  name            TEXT    NOT NULL COLLATE NOCASE,"
+            "  competitiveness TEXT    NOT NULL,"
+            "  medium          TEXT    NOT NULL,"
+            "  FOREIGN KEY (game_id) REFERENCES GameTitles(id),"
+            "  UNIQUE (game_id, name)"
+            ");"
+            "INSERT INTO GameTypes (game_id, name, competitiveness, medium)"
+            " VALUES (1, 'FNM', 'Non-Competitive', 'Paper');"
+            "CREATE TABLE Decks ("
+            "  id            INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  format_id     INTEGER NOT NULL,"
+            "  archetype_id  INTEGER NOT NULL,"
+            "  name          TEXT    NOT NULL COLLATE NOCASE,"
+            "  variant       TEXT    NOT NULL DEFAULT '' COLLATE NOCASE,"
+            "  variant_note  TEXT    NOT NULL DEFAULT '',"
+            "  FOREIGN KEY (format_id)    REFERENCES Formats(id),"
+            "  FOREIGN KEY (archetype_id) REFERENCES DeckArchetypes(id),"
+            "  UNIQUE (format_id, name, variant)"
+            ");"
+            "INSERT INTO Decks (format_id, archetype_id, name) VALUES (1, 1, 'Landstill');"
+            "CREATE TABLE Games ("
+            "  id               INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  format_id        INTEGER NOT NULL,"
+            "  played_on        TEXT    NOT NULL,"
+            "  deck_id          INTEGER NOT NULL,"
+            "  opponent_deck_id INTEGER NOT NULL,"
+            "  opponent         TEXT    NOT NULL DEFAULT '',"
+            "  result           TEXT    NOT NULL,"
+            "  score            TEXT    NOT NULL,"
+            "  game_type_id     INTEGER NOT NULL,"
+            "  notes            TEXT    NOT NULL DEFAULT '',"
+            "  FOREIGN KEY (format_id)        REFERENCES Formats(id),"
+            "  FOREIGN KEY (deck_id)          REFERENCES Decks(id),"
+            "  FOREIGN KEY (opponent_deck_id) REFERENCES Decks(id),"
+            "  FOREIGN KEY (game_type_id)     REFERENCES GameTypes(id)"
+            ");"
+            "INSERT INTO Games (format_id, played_on, deck_id, opponent_deck_id,"
+            " result, score, game_type_id) VALUES"
+            " (1, '2024-01-02', 1, 1, 'Win', '2-1', 1);"
+        ).isOk());
+        REQUIRE(execSql(db.handle(), "PRAGMA foreign_keys = ON;").isOk());
+
+        REQUIRE(db.migrate().isOk());
+
+        SqliteFormatRepository formats(db);
+        auto listedFormats = formats.listByGame(1);
+        REQUIRE(listedFormats.isOk());
+        REQUIRE(listedFormats.value().size() == 1);
+        CHECK(listedFormats.value()[0].id == 1);
+        CHECK_FALSE(listedFormats.value()[0].rotating);
+
+        SqliteDeckRepository decks(db);
+        auto listedDecks = decks.listByFormat(1);
+        REQUIRE(listedDecks.isOk());
+        REQUIRE(listedDecks.value().size() == 1);
+        CHECK(listedDecks.value()[0].id == 1);
+        CHECK(listedDecks.value()[0].name == "Landstill");
+        CHECK(listedDecks.value()[0].rotationId == 0);
+        CHECK(decks.create(1, 1, "Landstill", "", "").isErr());
+
+        SqliteGameRepository games(db);
+        auto listedGames = games.listByFormat(1);
+        REQUIRE(listedGames.isOk());
+        REQUIRE(listedGames.value().size() == 1);
+        CHECK(listedGames.value()[0].id == 1);
+        CHECK(listedGames.value()[0].rotationId == 0);
+        CHECK(listedGames.value()[0].playedOn == "2024-01-02");
+    }
 }

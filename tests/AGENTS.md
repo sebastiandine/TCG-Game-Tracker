@@ -7,6 +7,7 @@
 - `main.cpp` — doctest entry point with `DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN`. Do not put tests here.
 - `fakes/InMemoryFileSystem.{hpp,cpp}` — `IFileSystem` implementation backed by `std::map`. Normalizes paths via `lexically_normal().generic_string()` (always `/` separators).
 - `fakes/InMemoryFormatRepository.hpp` — `IFormatRepository` test fake backed by `std::vector`.
+- `fakes/InMemoryRotationRepository.hpp` — `IRotationRepository` test fake backed by `std::vector`.
 - `fakes/InMemoryGameTitleRepository.hpp` — `IGameTitleRepository` test fake backed by `std::vector`.
 - `fakes/InMemoryDeckRepository.hpp` — `IDeckRepository` test fake backed by `std::vector` with optional `seedArchetypes()`.
 - `fakes/InMemoryGameTypeRepository.hpp` — `IGameTypeRepository` test fake backed by `std::vector`.

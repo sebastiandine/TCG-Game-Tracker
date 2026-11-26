@@ -20,7 +20,8 @@ public:
                                       MatchResult result,
                                       MatchScore score,
                                       std::int64_t gameTypeId,
-                                      const std::string& notes) override;
+                                      const std::string& notes,
+                                      std::int64_t rotationId = 0) override;
 
     [[nodiscard]] Result<Game> update(std::int64_t gameId,
                                       const std::string& playedOn,
@@ -33,7 +34,7 @@ public:
                                       const std::string& notes) override;
 
     [[nodiscard]] Result<std::vector<Game>> listByFormat(
-        std::int64_t formatId) override;
+        std::int64_t formatId, std::int64_t rotationId = 0) override;
 
 private:
     SqliteDatabase& db_;

@@ -26,7 +26,7 @@ class GamesPanel : public wxPanel {
 public:
     GamesPanel(wxWindow* parent, AppContext& ctx);
 
-    void loadFormat(std::int64_t formatId);
+    void loadFormat(std::int64_t formatId, std::int64_t rotationId = 0);
     void applyTheme();
 
 private:
@@ -43,6 +43,7 @@ private:
 
     AppContext& ctx_;
     std::int64_t formatId_{0};
+    std::int64_t rotationId_{0};
     std::int64_t lastDeckId_{0};
     std::int64_t lastGameTypeId_{0};
 

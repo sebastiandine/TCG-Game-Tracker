@@ -4,11 +4,14 @@
 #include "tracker/ui/CreateFormatDialog.hpp"
 #include "tracker/ui/CreateGameTitleDialog.hpp"
 #include "tracker/ui/CreateGameTypeDialog.hpp"
+#include "tracker/ui/CreateRotationDialog.hpp"
 #include "tracker/ui/FormatWorkspace.hpp"
 #include "tracker/ui/ImportGamesDialog.hpp"
 #include "tracker/ui/ExportGamesDialog.hpp"
+#include "tracker/ui/RotationFields.hpp"
 #include "tracker/ui/SettingsDialog.hpp"
 #include "tracker/ui/Theme.hpp"
+#include "tracker/domain/Rotation.hpp"
 #include "tracker/domain/Selection.hpp"
 
 #include <wx/cursor.h>
@@ -50,6 +53,7 @@ MainFrame::MainFrame(AppContext& ctx)
 
     CallAfter([this] {
         restoreSelection();
+        promptExpiredRotation();
     });
     Maximize(true);
 }
@@ -164,6 +168,7 @@ void MainFrame::onOpenFormatsMenu() {
     const bool loaded = rebuildFormatsMenu();
 
     wxMenu menu;
+    formatMenuEntries_.clear();
     if (selectedGameId_ == 0) {
         menu.Append(IdFormatBase, "(Select a game first)");
         menu.Enable(IdFormatBase, false);
@@ -174,14 +179,60 @@ void MainFrame::onOpenFormatsMenu() {
         menu.Append(IdFormatBase, "(No formats yet)");
         menu.Enable(IdFormatBase, false);
     } else {
-        for (std::size_t i = 0; i < loadedFormats_.size(); ++i) {
-            const int menuId = IdFormatBase + static_cast<int>(i);
-            if (menuId > IdFormatMax) break;
-            menu.AppendRadioItem(menuId,
-                wxString::FromUTF8(loadedFormats_[i].name.c_str()));
-            if (loadedFormats_[i].id == selectedFormatId_) {
-                menu.Check(menuId, true);
+        int nextId = IdFormatBase;
+        for (const auto& format : loadedFormats_) {
+            if (nextId > IdFormatMax) break;
+            if (!format.rotating) {
+                menu.AppendRadioItem(nextId,
+                    wxString::FromUTF8(format.name.c_str()));
+                if (format.id == selectedFormatId_ && selectedRotationId_ == 0) {
+                    menu.Check(nextId, true);
+                }
+                formatMenuEntries_.push_back({format.id, 0, false});
+                ++nextId;
+                continue;
             }
+
+            auto listed = ctx_.formats.listRotations(format.id);
+            auto* sub = new wxMenu();
+            if (!listed) {
+                const int errorId = nextId++;
+                sub->Append(errorId, "(Error loading rotations)");
+                sub->Enable(errorId, false);
+                formatMenuEntries_.push_back({format.id, 0, false});
+            } else {
+                std::vector<Rotation> ordered;
+                const Rotation* pinned = nullptr;
+                for (const auto& rotation : listed.value()) {
+                    if (format.id == selectedFormatId_ &&
+                        rotation.id == selectedRotationId_) {
+                        pinned = &rotation;
+                        break;
+                    }
+                }
+                if (pinned != nullptr) ordered.push_back(*pinned);
+                for (const auto& rotation : listed.value()) {
+                    if (pinned != nullptr && rotation.id == pinned->id) continue;
+                    ordered.push_back(rotation);
+                }
+                for (const auto& rotation : ordered) {
+                    if (nextId > IdFormatMax) break;
+                    sub->AppendRadioItem(nextId,
+                        wxString::FromUTF8(rotation.name.c_str()));
+                    if (rotation.id == selectedRotationId_) {
+                        sub->Check(nextId, true);
+                    }
+                    formatMenuEntries_.push_back({format.id, rotation.id, false});
+                    ++nextId;
+                }
+                if (nextId <= IdFormatMax) {
+                    sub->AppendSeparator();
+                    sub->Append(nextId, "New Rotation...");
+                    formatMenuEntries_.push_back({format.id, 0, true});
+                    ++nextId;
+                }
+            }
+            menu.AppendSubMenu(sub, wxString::FromUTF8(format.name.c_str()));
         }
     }
     popupMenuUnder(formatsMenuLabel_, menu);
@@ -241,6 +292,8 @@ bool MainFrame::rebuildGamesMenu() {
     if (!found && selectedGameId_ != 0) {
         selectedGameId_ = 0;
         selectedFormatId_ = 0;
+        selectedRotationId_ = 0;
+        selectedRotationName_.clear();
         persistSelection();
     }
     return true;
@@ -251,6 +304,8 @@ bool MainFrame::rebuildFormatsMenu() {
         loadedFormats_.clear();
         if (selectedFormatId_ != 0) {
             selectedFormatId_ = 0;
+            selectedRotationId_ = 0;
+            selectedRotationName_.clear();
             persistSelection();
         }
         return true;
@@ -270,6 +325,8 @@ bool MainFrame::rebuildFormatsMenu() {
     }
     if (!found && selectedFormatId_ != 0) {
         selectedFormatId_ = 0;
+        selectedRotationId_ = 0;
+        selectedRotationName_.clear();
         persistSelection();
     }
     return true;
@@ -306,16 +363,26 @@ void MainFrame::updateTitleAndEmptyState() {
         return;
     }
 
-    SetTitle(wxString::Format("%s - %s - %s", kAppName, gameName, formatName));
+    const wxString rotationName =
+        wxString::FromUTF8(selectedRotationName_.c_str());
+    if (rotationName.empty()) {
+        SetTitle(wxString::Format("%s - %s - %s", kAppName, gameName, formatName));
+    } else {
+        SetTitle(wxString::Format("%s - %s - %s - %s", kAppName, gameName,
+                                  formatName, rotationName));
+    }
 }
 
 void MainFrame::restoreSelection() {
     selectedGameId_ = ctx_.config.current().selectedGameId;
     selectedFormatId_ = ctx_.config.current().selectedFormatId;
+    selectedRotationId_ = ctx_.config.current().selectedRotationId;
     rebuildGamesMenu();
     selectedGameId_ = resolveSavedOrSoleId(loadedGames_, selectedGameId_);
     if (selectedGameId_ == 0) {
         selectedFormatId_ = 0;
+        selectedRotationId_ = 0;
+        selectedRotationName_.clear();
         loadedFormats_.clear();
         updateTitleAndEmptyState();
         persistSelection();
@@ -326,38 +393,79 @@ void MainFrame::restoreSelection() {
 
 void MainFrame::selectGame(std::int64_t gameId) {
     selectedGameId_ = gameId;
+    const std::int64_t savedRotation = selectedRotationId_;
     rebuildFormatsMenu();
     selectedFormatId_ = resolveSavedOrSoleId(loadedFormats_, selectedFormatId_);
     if (selectedFormatId_ != 0) {
-        selectFormat(selectedFormatId_);
+        selectFormat(selectedFormatId_, savedRotation);
     } else {
+        selectedRotationId_ = 0;
+        selectedRotationName_.clear();
         updateTitleAndEmptyState();
         persistSelection();
     }
 }
 
-void MainFrame::selectFormat(std::int64_t formatId) {
+void MainFrame::selectFormat(std::int64_t formatId, std::int64_t rotationId) {
     selectedFormatId_ = formatId;
-    for (const auto& f : loadedFormats_) {
-        if (f.id == formatId) {
-            updateTitleAndEmptyState();
-            showWorkspace();
-            workspace_->loadFormat(formatId);
-            persistSelection();
-            return;
+    selectedRotationId_ = 0;
+    selectedRotationName_.clear();
+    const Format* format = nullptr;
+    for (const auto& candidate : loadedFormats_) {
+        if (candidate.id == formatId) {
+            format = &candidate;
+            break;
         }
     }
+    if (format == nullptr) {
+        updateTitleAndEmptyState();
+        return;
+    }
+
+    if (format->rotating) {
+        auto listed = ctx_.formats.listRotations(formatId);
+        if (listed && !listed.value().empty()) {
+            const Rotation* chosen = nullptr;
+            for (const auto& rotation : listed.value()) {
+                if (rotation.id == rotationId) {
+                    chosen = &rotation;
+                    break;
+                }
+            }
+            if (chosen == nullptr) {
+                const auto latest = latestRotation(listed.value());
+                if (latest) {
+                    for (const auto& rotation : listed.value()) {
+                        if (rotation.id == latest->id) {
+                            chosen = &rotation;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (chosen != nullptr) {
+                selectedRotationId_ = chosen->id;
+                selectedRotationName_ = chosen->name;
+            }
+        }
+    }
+
     updateTitleAndEmptyState();
+    showWorkspace();
+    workspace_->loadFormat(formatId, selectedRotationId_);
+    persistSelection();
 }
 
 void MainFrame::persistSelection() {
     auto cfg = ctx_.config.current();
     if (cfg.selectedGameId == selectedGameId_ &&
-        cfg.selectedFormatId == selectedFormatId_) {
+        cfg.selectedFormatId == selectedFormatId_ &&
+        cfg.selectedRotationId == selectedRotationId_) {
         return;
     }
     cfg.selectedGameId = selectedGameId_;
     cfg.selectedFormatId = selectedFormatId_;
+    cfg.selectedRotationId = selectedRotationId_;
     ctx_.config.store(std::move(cfg));
 }
 
@@ -404,6 +512,8 @@ void MainFrame::onCreateGame(wxCommandEvent&) {
     if (dlg.ShowModal() == wxID_OK) {
         rebuildGamesMenu();
         selectedFormatId_ = 0;
+        selectedRotationId_ = 0;
+        selectedRotationName_.clear();
         selectGame(dlg.createdGame().id);
     }
 }
@@ -418,7 +528,7 @@ void MainFrame::onCreateFormat(wxCommandEvent&) {
     themeModalDialog(&dlg, ctx_.config.current().theme);
     if (dlg.ShowModal() == wxID_OK) {
         rebuildFormatsMenu();
-        selectFormat(dlg.createdFormat().id);
+        selectFormat(dlg.createdFormat().id, dlg.createdRotation().id);
     }
 }
 
@@ -442,7 +552,7 @@ void MainFrame::onCreateArchetype(wxCommandEvent&) {
     CreateArchetypeDialog dlg(this, ctx_.decks, selectedGameId_);
     themeModalDialog(&dlg, ctx_.config.current().theme);
     if (dlg.ShowModal() == wxID_OK && selectedFormatId_ != 0) {
-        workspace_->loadFormat(selectedFormatId_);
+        workspace_->loadFormat(selectedFormatId_, selectedRotationId_);
     }
 }
 
@@ -456,7 +566,7 @@ void MainFrame::onImportGames(wxCommandEvent&) {
     themeModalDialog(&dlg, ctx_.config.current().theme);
     if (dlg.ShowModal() == wxID_OK && dlg.importedFormatId() != 0) {
         rebuildFormatsMenu();
-        selectFormat(dlg.importedFormatId());
+        selectFormat(dlg.importedFormatId(), dlg.importedRotationId());
     }
 }
 
@@ -479,10 +589,102 @@ void MainFrame::onGameSelected(wxCommandEvent& evt) {
 }
 
 void MainFrame::onFormatSelected(wxCommandEvent& evt) {
-    const int idx = evt.GetId() - IdFormatBase;
-    if (idx >= 0 && static_cast<std::size_t>(idx) < loadedFormats_.size()) {
-        selectFormat(loadedFormats_[idx].id);
+    const int index = evt.GetId() - IdFormatBase;
+    if (index < 0 ||
+        static_cast<std::size_t>(index) >= formatMenuEntries_.size()) {
+        return;
     }
+    const FormatMenuEntry entry = formatMenuEntries_[static_cast<std::size_t>(index)];
+    if (entry.newRotation) {
+        openNewRotation(entry.formatId);
+        return;
+    }
+    if (entry.rotationId == 0) {
+        const Format* format = nullptr;
+        for (const auto& candidate : loadedFormats_) {
+            if (candidate.id == entry.formatId) {
+                format = &candidate;
+                break;
+            }
+        }
+        if (format != nullptr && format->rotating) return;
+    }
+    selectFormat(entry.formatId, entry.rotationId);
+}
+
+void MainFrame::openNewRotation(std::int64_t formatId) {
+    int startYear = 2026;
+    int startMonth = 1;
+    currentYearMonth(startYear, startMonth);
+    auto listed = ctx_.formats.listRotations(formatId);
+    if (listed) {
+        const auto latest = latestRotation(listed.value());
+        if (latest) {
+            monthAfter(latest->endYear, latest->endMonth, startYear, startMonth);
+        }
+    }
+
+    CreateRotationDialog dlg(this, ctx_.formats, formatId, startYear, startMonth);
+    themeModalDialog(&dlg, ctx_.config.current().theme);
+    if (dlg.ShowModal() != wxID_OK) return;
+    rebuildFormatsMenu();
+    selectFormat(formatId, dlg.createdRotation().id);
+}
+
+void MainFrame::promptExpiredRotation() {
+    if (selectedFormatId_ == 0 || selectedRotationId_ == 0) return;
+    const Format* format = nullptr;
+    for (const auto& candidate : loadedFormats_) {
+        if (candidate.id == selectedFormatId_) {
+            format = &candidate;
+            break;
+        }
+    }
+    if (format == nullptr || !format->rotating) return;
+
+    auto listed = ctx_.formats.listRotations(selectedFormatId_);
+    if (!listed) return;
+    const auto latest = latestRotation(listed.value());
+    if (!latest || latest->expiryPrompted) return;
+
+    int year = 2026;
+    int month = 1;
+    currentYearMonth(year, month);
+    if (!rotationEnded(*latest, year, month)) return;
+
+    const wxString message = wxString::Format(
+        "The rotation \"%s\" ended in %s %d. Create a new rotation and make it active?",
+        wxString::FromUTF8(latest->name.c_str()),
+        monthLabel(latest->endMonth),
+        latest->endYear);
+    const bool yes = showThemedConfirmDialog(
+                         this, message, "Rotation ended") == wxID_YES;
+    const std::int64_t promptedId = latest->id;
+    if (!yes) {
+        const auto marked = ctx_.formats.markExpiryPrompted(promptedId);
+        if (!marked) {
+            showThemedMessageDialog(this,
+                wxString::FromUTF8(marked.error().c_str()), "Error", wxOK);
+        }
+        return;
+    }
+
+    int startYear = latest->endYear;
+    int startMonth = latest->endMonth;
+    monthAfter(latest->endYear, latest->endMonth, startYear, startMonth);
+    CreateRotationDialog dlg(this, ctx_.formats, selectedFormatId_,
+                             startYear, startMonth);
+    themeModalDialog(&dlg, ctx_.config.current().theme);
+    if (dlg.ShowModal() != wxID_OK) {
+        const auto marked = ctx_.formats.markExpiryPrompted(promptedId);
+        if (!marked) {
+            showThemedMessageDialog(this,
+                wxString::FromUTF8(marked.error().c_str()), "Error", wxOK);
+        }
+        return;
+    }
+    rebuildFormatsMenu();
+    selectFormat(selectedFormatId_, dlg.createdRotation().id);
 }
 
 }  // namespace tracker::ui

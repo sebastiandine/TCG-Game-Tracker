@@ -194,8 +194,9 @@ StatisticsPanel::StatisticsPanel(
     Thaw();
 }
 
-void StatisticsPanel::loadFormat(std::int64_t formatId) {
+void StatisticsPanel::loadFormat(std::int64_t formatId, std::int64_t rotationId) {
     formatId_ = formatId;
+    rotationId_ = rotationId;
     filter_.clear();
     if (filterInput_ != nullptr) filterInput_->ChangeValue("");
     refresh();
@@ -217,8 +218,8 @@ void StatisticsPanel::refresh() {
             }
         }
 
-        auto deckResult = ctx_.decks.listByFormat(formatId_);
-        auto gameResult = ctx_.games.listByFormat(formatId_);
+        auto deckResult = ctx_.decks.listByFormat(formatId_, rotationId_);
+        auto gameResult = ctx_.games.listByFormat(formatId_, rotationId_);
         if (deckResult && gameResult) {
             rows_ = computeDeckStatistics(deckResult.value(),
                                           gameResult.value());

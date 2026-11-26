@@ -245,7 +245,8 @@ void DecksPanel::onAdd() {
     }
     const std::int64_t archetypeId = archetypes_[archSel].id;
 
-    auto result = ctx_.decks.create(formatId_, archetypeId, name, variant, note);
+    auto result = ctx_.decks.create(formatId_, archetypeId, name, variant, note,
+                                   rotationId_);
     if (!result) {
         showThemedMessageDialog(
             this, wxString::FromUTF8(result.error().c_str()),
@@ -274,7 +275,7 @@ void DecksPanel::onDelete(const Deck& deck) {
 }
 
 void DecksPanel::onRenameGroup(const std::string& name) {
-    RenameDeckDialog dlg(this, ctx_.decks, formatId_, name);
+    RenameDeckDialog dlg(this, ctx_.decks, formatId_, rotationId_, name);
     themeModalDialog(&dlg, ctx_.config.current().theme);
     if (dlg.ShowModal() == wxID_OK) refreshTree();
 }
@@ -304,8 +305,9 @@ void DecksPanel::fillArchetypeChoice() {
     }
 }
 
-void DecksPanel::loadFormat(std::int64_t formatId) {
+void DecksPanel::loadFormat(std::int64_t formatId, std::int64_t rotationId) {
     formatId_ = formatId;
+    rotationId_ = rotationId;
     fillArchetypeChoice();
     refreshTree();
 }
@@ -323,7 +325,7 @@ void DecksPanel::refreshTree() {
         return;
     }
 
-    auto result = ctx_.decks.listByFormat(formatId_);
+    auto result = ctx_.decks.listByFormat(formatId_, rotationId_);
     if (!result) {
         tree_->Thaw();
         return;

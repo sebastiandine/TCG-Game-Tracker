@@ -27,7 +27,8 @@ public:
                                       MatchResult result,
                                       MatchScore score,
                                       std::int64_t gameTypeId,
-                                      const std::string& notes);
+                                      const std::string& notes,
+                                      std::int64_t rotationId = 0);
 
     // Update an existing game after trimming notes and validating inputs.
     [[nodiscard]] Result<Game> update(std::int64_t gameId,
@@ -43,9 +44,9 @@ public:
     // Clear notes on an existing game; all other fields stay unchanged.
     [[nodiscard]] Result<Game> clearNotes(const Game& game);
 
-    // Return all games belonging to the given format (newest first).
+    // Games in the format, newest first. `rotationId` 0 is the non-rotating scope.
     [[nodiscard]] Result<std::vector<Game>> listByFormat(
-        std::int64_t formatId);
+        std::int64_t formatId, std::int64_t rotationId = 0);
 
 private:
     IGameRepository& repo_;

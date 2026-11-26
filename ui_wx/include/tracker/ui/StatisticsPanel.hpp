@@ -29,7 +29,7 @@ public:
     StatisticsPanel(wxWindow* parent, AppContext& ctx,
                     std::function<void(const DeckStatsKey&)> onOpenDeckStats);
 
-    void loadFormat(std::int64_t formatId);
+    void loadFormat(std::int64_t formatId, std::int64_t rotationId = 0);
     void applyTheme();
 
 private:
@@ -42,6 +42,7 @@ private:
 
     AppContext& ctx_;
     std::int64_t formatId_{0};
+    std::int64_t rotationId_{0};
     std::function<void(const DeckStatsKey&)> onOpenDeckStats_;
     std::vector<DeckNameStats> rows_;
     FormatStatistics formatStats_{};

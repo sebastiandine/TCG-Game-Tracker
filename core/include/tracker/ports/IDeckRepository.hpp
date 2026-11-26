@@ -28,11 +28,13 @@ public:
     // Create a deck record. Returns the created Deck (with its assigned id).
     // Fails if the (format_id, name, variant) triple already exists, or if a
     // foreign key is invalid.
+    // `rotationId` 0 stores a null rotation (non-rotating format).
     [[nodiscard]] virtual Result<Deck> create(std::int64_t formatId,
                                               std::int64_t archetypeId,
                                               const std::string& name,
                                               const std::string& variant,
-                                              const std::string& variantNote) = 0;
+                                              const std::string& variantNote,
+                                              std::int64_t rotationId = 0) = 0;
 
     // Update an existing deck record. Returns the updated Deck.
     // Fails if the (format_id, name, variant) triple conflicts with another
@@ -49,20 +51,23 @@ public:
     // Set `toName` on every deck in `formatId` whose name matches `fromName`
     // (case-insensitive). Variant labels are left unchanged. Fails, changing
     // nothing, when the new name would duplicate an existing deck+variant.
+    // Rename only the family in this rotation. `rotationId` 0 is the
+    // non-rotating scope (rotation_id IS NULL).
     [[nodiscard]] virtual Result<void> renameFamily(
         std::int64_t formatId,
         const std::string& fromName,
-        const std::string& toName) = 0;
+        const std::string& toName,
+        std::int64_t rotationId = 0) = 0;
 
     // Delete games that reference `deckId` (as the player deck or the
     // opponent deck), then delete the deck, in one transaction. Returns how
     // many games were removed.
     [[nodiscard]] virtual Result<int> remove(std::int64_t deckId) = 0;
 
-    // Return all decks belonging to the given format, ordered by name then
-    // variant ascending.
+    // Decks in the format. `rotationId` 0 returns only non-rotating rows
+    // (rotation_id IS NULL); any other id returns that rotation.
     [[nodiscard]] virtual Result<std::vector<Deck>> listByFormat(
-        std::int64_t formatId) = 0;
+        std::int64_t formatId, std::int64_t rotationId = 0) = 0;
 };
 
 }  // namespace tracker

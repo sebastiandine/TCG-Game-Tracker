@@ -39,6 +39,7 @@ static Result<void> projectedNamesAreUnique(const std::vector<Deck>& decks,
     std::vector<Row> rows;
     for (const auto& deck : decks) {
         if (deck.formatId != current.formatId) continue;
+        if (deck.rotationId != current.rotationId) continue;
         Row row;
         row.name = sameText(deck.name, current.name) ? newName : deck.name;
         row.variant = deck.id == current.id ? newVariant : deck.variant;
@@ -76,7 +77,8 @@ Result<Deck> DeckService::create(std::int64_t formatId,
                                  std::int64_t archetypeId,
                                  const std::string& name,
                                  const std::string& variant,
-                                 const std::string& variantNote) {
+                                 const std::string& variantNote,
+                                 std::int64_t rotationId) {
     if (formatId <= 0) {
         return Result<Deck>::err("No format selected.");
     }
@@ -93,7 +95,7 @@ Result<Deck> DeckService::create(std::int64_t formatId,
     const std::string trimmedNote = trim(variantNote);
 
     return repo_.create(formatId, archetypeId, trimmedName, trimmedVariant,
-                        trimmedNote);
+                        trimmedNote, rotationId);
 }
 
 Result<Deck> DeckService::update(std::int64_t deckId,
@@ -120,21 +122,24 @@ Result<Deck> DeckService::update(std::int64_t deckId,
     if (!current) return Result<Deck>::err(current.error());
 
     if (trimmedName != current.value().name) {
-        auto listed = repo_.listByFormat(current.value().formatId);
+        auto listed = repo_.listByFormat(current.value().formatId,
+                                         current.value().rotationId);
         if (!listed) return Result<Deck>::err(listed.error());
         auto unique = projectedNamesAreUnique(
             listed.value(), current.value(), trimmedName, trimmedVariant);
         if (!unique) return Result<Deck>::err(unique.error());
 
         auto renamed = repo_.renameFamily(
-            current.value().formatId, current.value().name, trimmedName);
+            current.value().formatId, current.value().name, trimmedName,
+            current.value().rotationId);
         if (!renamed) return Result<Deck>::err(renamed.error());
 
         auto updated = repo_.update(deckId, archetypeId, trimmedName,
                                     trimmedVariant, trimmedNote);
         if (!updated) {
             const auto reverted = repo_.renameFamily(
-                current.value().formatId, trimmedName, current.value().name);
+                current.value().formatId, trimmedName, current.value().name,
+                current.value().rotationId);
             (void)reverted;
             return Result<Deck>::err(updated.error());
         }
@@ -147,7 +152,8 @@ Result<Deck> DeckService::update(std::int64_t deckId,
 
 Result<void> DeckService::renameFamily(std::int64_t formatId,
                                        const std::string& fromName,
-                                       const std::string& toName) {
+                                       const std::string& toName,
+                                       std::int64_t rotationId) {
     if (formatId <= 0) {
         return Result<void>::err("No format selected.");
     }
@@ -157,7 +163,7 @@ Result<void> DeckService::renameFamily(std::int64_t formatId,
         return Result<void>::err("Deck name must not be empty.");
     }
     if (from == to) return Result<void>::ok();
-    return repo_.renameFamily(formatId, from, to);
+    return repo_.renameFamily(formatId, from, to, rotationId);
 }
 
 Result<int> DeckService::deleteVariant(std::int64_t deckId) {
@@ -183,7 +189,8 @@ Result<int> DeckService::deleteDeck(std::int64_t deckId) {
             "This row is a variante. Delete the variante instead.");
     }
 
-    auto listed = repo_.listByFormat(deck.value().formatId);
+    auto listed = repo_.listByFormat(deck.value().formatId,
+                                     deck.value().rotationId);
     if (!listed) return Result<int>::err(listed.error());
     for (const auto& other : listed.value()) {
         if (sameText(other.name, deck.value().name) &&
@@ -196,8 +203,9 @@ Result<int> DeckService::deleteDeck(std::int64_t deckId) {
     return repo_.remove(deckId);
 }
 
-Result<std::vector<Deck>> DeckService::listByFormat(std::int64_t formatId) {
-    return repo_.listByFormat(formatId);
+Result<std::vector<Deck>> DeckService::listByFormat(std::int64_t formatId,
+                                                    std::int64_t rotationId) {
+    return repo_.listByFormat(formatId, rotationId);
 }
 
 }  // namespace tracker

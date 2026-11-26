@@ -7,8 +7,11 @@
 
 #include "tracker/domain/Format.hpp"
 #include "tracker/domain/GameTitle.hpp"
+#include "tracker/domain/Rotation.hpp"
 #include "tracker/ui/AppContext.hpp"
 
+#include <cstdint>
+#include <string>
 #include <vector>
 
 #include <wx/frame.h>
@@ -36,11 +39,13 @@ private:
     bool rebuildFormatsMenu();
     void restoreSelection();
     void selectGame(std::int64_t gameId);
-    void selectFormat(std::int64_t formatId);
+    void selectFormat(std::int64_t formatId, std::int64_t rotationId);
     void persistSelection();
     void updateTitleAndEmptyState();
     void showEmptyState();
     void showWorkspace();
+    void promptExpiredRotation();
+    void openNewRotation(std::int64_t formatId);
 
     wxStaticText* addMenuLabel(wxSizer* sizer, const wxString& text, int border,
                                void (MainFrame::*handler)());
@@ -80,8 +85,16 @@ private:
 
     std::vector<GameTitle> loadedGames_;
     std::vector<Format> loadedFormats_;
+    struct FormatMenuEntry {
+        std::int64_t formatId{0};
+        std::int64_t rotationId{0};
+        bool newRotation{false};
+    };
+    std::vector<FormatMenuEntry> formatMenuEntries_;
     std::int64_t selectedGameId_{0};
     std::int64_t selectedFormatId_{0};
+    std::int64_t selectedRotationId_{0};
+    std::string selectedRotationName_;
 
     enum Ids : int {
         IdSettings = wxID_HIGHEST + 1,
@@ -93,7 +106,7 @@ private:
         IdImportGames,
         IdExportGames,
         IdFormatBase = wxID_HIGHEST + 100,
-        IdFormatMax  = IdFormatBase + 500,
+        IdFormatMax  = IdFormatBase + 2000,
         IdGameBase   = IdFormatMax + 1,
         IdGameMax    = IdGameBase + 500,
     };

@@ -15,11 +15,18 @@ class IFormatRepository {
 public:
     virtual ~IFormatRepository() = default;
 
-    // Create a format with the given name under `gameId`. Returns the created
-    // Format (with its assigned id). Fails if a format with the same name
-    // already exists in that game (case-insensitive).
+    // Create a format under `gameId`. `rotating` is fixed at creation.
+    // Fails if a format with the same name already exists in that game
+    // (case-insensitive).
     [[nodiscard]] virtual Result<Format> create(
-        std::int64_t gameId, const std::string& name) = 0;
+        std::int64_t gameId, const std::string& name, bool rotating = false) = 0;
+
+    // Return the format with this id, or an error if it does not exist.
+    [[nodiscard]] virtual Result<Format> findById(std::int64_t formatId) = 0;
+
+    // Delete a format row. Used to roll back a rotating format whose first
+    // rotation could not be stored. Fails when the row does not exist.
+    [[nodiscard]] virtual Result<void> remove(std::int64_t formatId) = 0;
 
     // Return formats for `gameId` ordered by id ascending.
     [[nodiscard]] virtual Result<std::vector<Format>> listByGame(

@@ -13,7 +13,10 @@ public:
     explicit SqliteFormatRepository(SqliteDatabase& db);
 
     [[nodiscard]] Result<Format> create(
-        std::int64_t gameId, const std::string& name) override;
+        std::int64_t gameId, const std::string& name,
+        bool rotating = false) override;
+    [[nodiscard]] Result<Format> findById(std::int64_t formatId) override;
+    [[nodiscard]] Result<void> remove(std::int64_t formatId) override;
     [[nodiscard]] Result<std::vector<Format>> listByGame(
         std::int64_t gameId) override;
 

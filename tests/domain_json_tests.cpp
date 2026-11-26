@@ -92,12 +92,14 @@ TEST_SUITE("Configuration JSON") {
         c.theme = Theme::Dark;
         c.selectedGameId = 9;
         c.selectedFormatId = 42;
+        c.selectedRotationId = 7;
 
         nlohmann::json j = c;
         CHECK(j.at("dataStorage") == "/some/path");
         CHECK(j.at("theme") == "Dark");
         CHECK(j.at("selectedGameId") == 9);
         CHECK(j.at("selectedFormatId") == 42);
+        CHECK(j.at("selectedRotationId") == 7);
 
         auto loaded = j.get<Configuration>();
         CHECK(loaded == c);
@@ -114,6 +116,12 @@ TEST_SUITE("Configuration JSON") {
         nlohmann::json j = {{"dataStorage", "/data"}, {"theme", "Light"}};
         auto c = j.get<Configuration>();
         CHECK(c.selectedFormatId == 0);
+    }
+
+    TEST_CASE("missing selectedRotationId defaults to 0") {
+        nlohmann::json j = {{"dataStorage", "/data"}, {"theme", "Light"}};
+        auto c = j.get<Configuration>();
+        CHECK(c.selectedRotationId == 0);
     }
 
     TEST_CASE("missing selectedGameId defaults to 0") {

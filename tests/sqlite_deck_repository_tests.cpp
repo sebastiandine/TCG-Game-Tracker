@@ -6,6 +6,7 @@
 #include "tracker/infra/SqliteGameRepository.hpp"
 #include "tracker/infra/SqliteGameTitleRepository.hpp"
 #include "tracker/infra/SqliteGameTypeRepository.hpp"
+#include "tracker/infra/SqliteRotationRepository.hpp"
 
 using namespace tracker;
 
@@ -164,7 +165,7 @@ TEST_SUITE("SqliteDeckRepository") {
 
         auto result = repo.create(9999, 1, "Fake", "", "");
         CHECK(result.isErr());
-        CHECK(result.error().find("Invalid format or archetype") !=
+        CHECK(result.error().find("Invalid format, archetype, or rotation") !=
               std::string::npos);
     }
 
@@ -181,7 +182,7 @@ TEST_SUITE("SqliteDeckRepository") {
 
         auto result = repo.create(fmt.value().id, 9999, "Fake", "", "");
         CHECK(result.isErr());
-        CHECK(result.error().find("Invalid format or archetype") !=
+        CHECK(result.error().find("Invalid format, archetype, or rotation") !=
               std::string::npos);
     }
 
@@ -420,5 +421,43 @@ TEST_SUITE("SqliteDeckRepository") {
         REQUIRE(left.value().size() == 1);
         CHECK(left.value()[0].deckId == shops.value().id);
         CHECK(left.value()[0].opponentDeckId == shops.value().id);
+    }
+
+    TEST_CASE("same name is allowed across rotations and rename stays inside one") {
+        SqliteDatabase db;
+        REQUIRE(db.openMemory().isOk());
+        const auto gameId = seedGame(db);
+        seedDefaultArchetypes(db, gameId);
+        SqliteFormatRepository formats(db);
+        auto fmt = formats.create(gameId, "Standard", true);
+        REQUIRE(fmt.isOk());
+        SqliteRotationRepository rotations(db);
+        auto early = rotations.create(fmt.value().id, "Early", 2024, 1, 2024, 3);
+        auto late = rotations.create(fmt.value().id, "Late", 2024, 4, 2024, 6);
+        REQUIRE(early.isOk());
+        REQUIRE(late.isOk());
+
+        SqliteDeckRepository decks(db);
+        auto first = decks.create(fmt.value().id, 1, "Burn", "", "", early.value().id);
+        auto second = decks.create(fmt.value().id, 1, "Burn", "", "", late.value().id);
+        REQUIRE(first.isOk());
+        REQUIRE(second.isOk());
+        CHECK(decks.create(fmt.value().id, 1, "burn", "", "", early.value().id).isErr());
+
+        auto nonRotating = formats.create(gameId, "Commander");
+        REQUIRE(nonRotating.isOk());
+        auto classic = decks.create(nonRotating.value().id, 1, "Burn", "", "");
+        REQUIRE(classic.isOk());
+        CHECK(classic.value().rotationId == 0);
+        CHECK(decks.create(nonRotating.value().id, 1, "Burn", "", "").isErr());
+
+        REQUIRE(decks.renameFamily(fmt.value().id, "Burn", "Red", early.value().id).isOk());
+        auto earlyDecks = decks.listByFormat(fmt.value().id, early.value().id);
+        auto lateDecks = decks.listByFormat(fmt.value().id, late.value().id);
+        REQUIRE(earlyDecks.isOk());
+        REQUIRE(lateDecks.isOk());
+        CHECK(earlyDecks.value()[0].name == "Red");
+        CHECK(lateDecks.value()[0].name == "Burn");
+        CHECK(decks.listByFormat(fmt.value().id).value().empty());
     }
 }
